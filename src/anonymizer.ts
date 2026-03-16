@@ -27,7 +27,9 @@ export async function anonymizeFont(fontPath: string, outputPath: string): Promi
             'version',
             'description',
             'trademark',
-            'uniqueID'
+            'uniqueID',
+            'preferredFamily',
+            'preferredSubfamily'
         ];
 
         // Replace identifying fields with generic ones
