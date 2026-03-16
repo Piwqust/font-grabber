@@ -692,4 +692,50 @@ program
     await run(url, opts);
   });
 
+// ─── anonymize subcommand ────────────────────────────────────────────
+
+interface AnonymizeOptions {
+  output?: string;
+}
+
+program
+  .command('anonymize')
+  .description('Anonymize a local font file by stripping identifying metadata')
+  .argument('<file>', 'path to the TTF/OTF font file to anonymize')
+  .option('-o, --output <file>', 'output file path (default: <filename>-anon<ext> next to the original)')
+  .action(async (file: string, opts: AnonymizeOptions) => {
+    const inputPath = path.resolve(file);
+
+    if (!fs.existsSync(inputPath)) {
+      console.error(chalk.red(`  Error: file not found: ${inputPath}`));
+      process.exit(1);
+    }
+
+    // Derive default output path: <basename>-anon<ext>
+    const ext = path.extname(inputPath);
+    const base = path.basename(inputPath, ext);
+    const dir = path.dirname(inputPath);
+    const outputPath = opts.output
+      ? path.resolve(opts.output)
+      : path.join(dir, `${base}-anon${ext}`);
+
+    const spinner = ora({
+      text: `Anonymizing ${chalk.cyan(path.basename(inputPath))}...`,
+    }).start();
+
+    try {
+      await anonymizeFont(inputPath, outputPath);
+      spinner.succeed(
+        `Anonymized ${chalk.cyan(path.basename(inputPath))} → ${chalk.green(path.basename(outputPath))}` +
+        chalk.dim(` (${path.dirname(outputPath)})`),
+      );
+      console.log('');
+    } catch (err) {
+      spinner.fail(chalk.red('Anonymization failed'));
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(chalk.red(`\n  Error: ${message}`));
+      process.exit(1);
+    }
+  });
+
 program.parse();
