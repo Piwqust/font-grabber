@@ -58,12 +58,10 @@ function guessFormatFromUrl(url: string): string {
  * e.g., "gosha-sans" → "Gosha Sans", "pp-neue-montreal" → "PP Neue Montreal"
  */
 function beautifyFontFamily(slug: string): string {
-  let cleaned = slug.replace(/([a-z])([A-Z])/g, '$1 $2');
-  return cleaned
+  return slug
     .split(/[-_]+/)
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ')
-    .trim();
+    .join(' ');
 }
 
 /** CSS numeric weight for common font name keywords */
@@ -91,44 +89,6 @@ const WEIGHT_KEYWORDS: Record<string, string> = {
 /**
  * Detect font format from binary data magic bytes.
  */
-
-/**
- * Try to extract family and weight info from a font URL.
- * Also returns prefix/suffix for probing other weights.
- */
-function parseFilenameToFontInfo(urlStr: string): { family: string, weight: string, style: string, weightKeyword: string, prefix: string, suffix: string, separator: string } | null {
-  try {
-    const u = new URL(urlStr);
-    const filename = u.pathname.split('/').pop() || '';
-    if (!filename) return null;
-    
-    const keywords = Object.keys(WEIGHT_KEYWORDS).sort((a, b) => b.length - a.length);
-    const pattern = new RegExp(`^(.*?)([-_]?)(${keywords.join('|')})(Italic)?(\.[a-zA-Z0-9]+)$`, 'i');
-    const match = filename.match(pattern);
-    
-    if (match) {
-      const prefixStr = match[1];
-      const separator = match[2];
-      const matchedKeyword = match[3];
-      const italic = match[4] || '';
-      const extension = match[5];
-      
-      const isItalic = italic.toLowerCase() === 'italic';
-      let style = isItalic ? 'italic' : 'normal';
-      let weight = WEIGHT_KEYWORDS[matchedKeyword.toLowerCase()] || '400';
-      
-      let familyStr = prefixStr.replace(/[-_]+$/, '');
-      if (!familyStr) familyStr = 'Unknown Family';
-      const family = beautifyFontFamily(familyStr);
-      
-      const urlPrefix = urlStr.slice(0, urlStr.length - filename.length) + prefixStr;
-      
-      return { family, weight, style, weightKeyword: matchedKeyword, prefix: urlPrefix, suffix: extension, separator };
-    }
-  } catch {}
-  return null;
-}
-
 function detectFontFormat(buffer: Buffer): string {
   if (buffer.length < 4) return 'truetype';
   // TrueType: 00 01 00 00
@@ -179,49 +139,6 @@ function parseFontFamilyName(family: string): { cleanFamily: string; weight: str
   }
 
   return { cleanFamily, weight, style };
-}
-
-/**
- * Parse raw CSS text and extract all @font-face blocks.
- * Used as a fallback for cross-origin stylesheets that CSSOM cannot read.
- */
-function parseFontFaceFromCssText(cssText: string): Array<{
-  family: string;
-  style: string;
-  weight: string;
-  src: string;
-  unicodeRange: string;
-}> {
-  const results: Array<{ family: string; style: string; weight: string; src: string; unicodeRange: string }> = [];
-
-  // Remove CSS comments first
-  const stripped = cssText.replace(/\/\*[\s\S]*?\*\//g, '');
-
-  // Match @font-face { ... } blocks
-  const fontFaceRegex = /@font-face\s*\{([^}]+)\}/gi;
-  let match: RegExpExecArray | null;
-
-  while ((match = fontFaceRegex.exec(stripped)) !== null) {
-    const block = match[1];
-
-    const getProp = (name: string): string => {
-      const re = new RegExp(`${name}\\s*:\\s*([^;]+)`, 'i');
-      const m = re.exec(block);
-      return m ? m[1].trim() : '';
-    };
-
-    const family = getProp('font-family').replace(/['"]/g, '').trim();
-    const weight  = getProp('font-weight')  || '400';
-    const style   = getProp('font-style')   || 'normal';
-    const src     = getProp('src');
-    const unicodeRange = getProp('unicode-range');
-
-    if (family && src) {
-      results.push({ family, weight: weight.trim(), style: style.trim(), src, unicodeRange });
-    }
-  }
-
-  return results;
 }
 
 /**
@@ -279,10 +196,6 @@ export async function discoverFonts(
     
     // Collect font URLs from network requests as a fallback
     const networkFontUrls = new Set<string>();
-    // Collect CSS text from ALL responses (including cross-origin) for fallback parsing
-    const cssTexts: Array<{ text: string; url: string }> = [];
-    const cssTextPromises: Array<Promise<void>> = [];
-
     page.on('response', (response) => {
       const url = response.url();
       const contentType = response.headers()['content-type'] || '';
@@ -291,13 +204,6 @@ export async function discoverFonts(
         /\.(woff2?|ttf|otf|eot)(\?|$)/i.test(url)
       ) {
         networkFontUrls.add(url);
-      }
-      // Capture CSS text for cross-origin fallback parsing
-      if (contentType.includes('text/css') || /\.css(\?|$)/i.test(url)) {
-        const p = response.text()
-          .then(text => { cssTexts.push({ text, url }); })
-          .catch(() => { /* ignore read errors */ });
-        cssTextPromises.push(p);
       }
     });
     
@@ -549,43 +455,6 @@ export async function discoverFonts(
       }
     }
     
-    // ── CSS response fallback: parse cross-origin stylesheets ───────────
-    // Wait for all CSS text captures to complete, then merge any @font-face
-    // rules that the CSSOM missed (cross-origin stylesheets throw SecurityError).
-    await Promise.allSettled(cssTextPromises);
-
-    for (const { text, url: cssUrl } of cssTexts) {
-      const parsed = parseFontFaceFromCssText(text);
-      for (const ff of parsed) {
-        if (!ff.family || !ff.src) continue;
-        const sources = parseSrcValue(ff.src, cssUrl);
-        if (sources.length === 0) continue;
-
-        const isVariable = /\d+\s+\d+/.test(ff.weight) || /\d+\s+\d+/.test(ff.style);
-        const key = `${ff.family}|${ff.weight}|${ff.style}`;
-        const existing = fontMap.get(key);
-
-        if (existing) {
-          for (const src of sources) {
-            if (!existing.sources.some(s => s.url === src.url)) {
-              existing.sources.push(src);
-            }
-          }
-          if (isVariable) existing.isVariable = true;
-        } else {
-          fontMap.set(key, {
-            key,
-            family: ff.family,
-            style: ff.style,
-            weight: ff.weight,
-            sources,
-            isVariable,
-            unicodeRange: ff.unicodeRange || undefined,
-          });
-        }
-      }
-    }
-
     // Add fonts discovered from HTML/JS attribute scanning
     for (const hf of htmlFontRefs) {
       let resolvedUrl = hf.url;
@@ -661,99 +530,15 @@ export async function discoverFonts(
         const key = `__network__|${netUrl}`;
         fontMap.set(key, {
           key,
-          family: parseFilenameToFontInfo(netUrl)?.family || '(Unknown - from network)',
-          style: parseFilenameToFontInfo(netUrl)?.style || 'normal',
-          weight: parseFilenameToFontInfo(netUrl)?.weight || '400',
+          family: '(Unknown - from network)',
+          style: 'normal',
+          weight: '400',
           sources: [{ url: netUrl, format }],
           isVariable: false,
         });
       }
     }
     
-    
-    // --- Probe for hidden weights ---
-    log('Probing for hidden font weights...');
-    const probedPrefixes = new Set<string>();
-    const probeCandidates: Array<{ url: string, format: string, family: string, weight: string, style: string }> = [];
-    
-    const commonKeywords = ['Thin', 'ExtraLight', 'Light', 'Regular', 'Medium', 'SemiBold', 'Bold', 'ExtraBold', 'Black'];
-    const styles = ['', 'Italic'];
-    
-    // Gather candidates from all known URLs
-    for (const font of Array.from(fontMap.values())) {
-      for (const source of font.sources) {
-        if (!source.url || source.url.startsWith('fontface://') || source.url.startsWith('data:')) continue;
-        
-        const info = parseFilenameToFontInfo(source.url);
-        if (!info) continue;
-        
-        const prefixKey = info.prefix + '|' + info.suffix;
-        if (probedPrefixes.has(prefixKey)) continue;
-        probedPrefixes.add(prefixKey);
-        
-        // Generate probes
-        for (const kw of commonKeywords) {
-          for (const st of styles) {
-            const isItalic = st === 'Italic';
-            const weight = WEIGHT_KEYWORDS[kw.toLowerCase()] || '400';
-            const style = isItalic ? 'italic' : 'normal';
-            
-            // Reconstruct URL carefully matching capitalization style if possible, or just standard
-            // E.g. PPGoshaSans-BoldItalic.woff2
-            const testUrl = info.prefix + info.separator + kw + st + info.suffix;
-            
-            // Skip if we already have this URL
-            const alreadyTracked = Array.from(fontMap.values()).some(f =>
-              f.sources.some(s => s.url === testUrl)
-            );
-            if (!alreadyTracked) {
-              probeCandidates.push({
-                url: testUrl,
-                format: guessFormatFromUrl(testUrl),
-                family: info.family,
-                weight,
-                style
-              });
-            }
-          }
-        }
-      }
-    }
-    
-    if (probeCandidates.length > 0) {
-      log(`Checking ${probeCandidates.length} potential hidden font files...`);
-      
-      // Concurrently HEAD request the candidates
-      const BATCH_SIZE = 10;
-      for (let i = 0; i < probeCandidates.length; i += BATCH_SIZE) {
-        const batch = probeCandidates.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map(async (candidate) => {
-          try {
-            const res = await fetch(candidate.url, { method: 'HEAD', headers: { 'User-Agent': 'Mozilla/5.0' } });
-            if (res.ok) {
-              const ct = res.headers.get('content-type') || '';
-              const cl = parseInt(res.headers.get('content-length') || '0', 10);
-              
-              if (ct.includes('font') || ct.includes('octet-stream') || cl > 2000) {
-                // Add to map
-                const key = `__probe__|${candidate.url}`;
-                fontMap.set(key, {
-                  key,
-                  family: candidate.family,
-                  style: candidate.style,
-                  weight: candidate.weight,
-                  sources: [{ url: candidate.url, format: candidate.format }],
-                  isVariable: false,
-                });
-              }
-            }
-          } catch {
-            // Ignore fetch errors
-          }
-        }));
-      }
-    }
-
     const fonts = Array.from(fontMap.values());
     log(`Discovered ${fonts.length} unique font variants`);
     
