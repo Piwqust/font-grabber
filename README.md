@@ -1,28 +1,71 @@
-# Font Grabber RS
+# Font Grabber
 
-Rust terminal app for discovering website fonts and converting them to usable **TTF/OTF** files.
+Clean Rust CLI for scraping website fonts and saving usable **TTF/OTF** files.
+
+## What it does
+
+- Discovers fonts from inline CSS, linked stylesheets, and browser-rendered CSSOM
+- Falls back to browser-context downloads when direct HTTP fetches are blocked
+- Converts **WOFF2**, **WOFF**, **TTF**, and **OTF** into clean sfnt output
+- Preserves variable-font axis metadata during inspection
+- Supports interactive selection and JSON output for automation
 
 ## Stack
 
-- **Rust** for the engine/runtime
-- **ratatui + crossterm** for the terminal UI
-- **reqwest** for static HTML/CSS fetching and HTTP downloads
-- **thirtyfour + WebDriver** for JS-rendered discovery and browser-context downloads
-- **wuff + ttf-parser** for WOFF/WOFF2 decoding and font inspection
+- **Rust** + **Tokio**
+- **clap** for command parsing
+- **dialoguer** + **console** for the CLI experience
+- **reqwest** + **scraper** for static HTML/CSS discovery
+- **thirtyfour** + WebDriver for render-mode discovery and browser-backed downloads
+- **wuff** + **ttf-parser** for font decompression and inspection
 
-## Features
+## Commands
 
-- Static CSS discovery from inline and linked stylesheets
-- Browser-backed discovery for JS-rendered pages
-- Browser-context downloads when direct HTTP fetches are not enough
-- Converts **WOFF2**, **WOFF**, **TTF**, and **OTF** into clean sfnt output
-- Preserves variable-font axis metadata during inspection
-- Interactive terminal workflow for discovery, selection, and saving
+```bash
+cd rust
+cargo run -- grab <url>
+cargo run -- scan <url>
+cargo run -- doctor
+```
+
+### `grab`
+
+Discover fonts, let the user review/select them, then download, convert, and save.
+
+```bash
+cargo run -- grab https://example.com
+cargo run -- grab https://example.com --all
+cargo run -- grab https://example.com --mode render -o ./fonts
+```
+
+### `scan`
+
+Discovery only.
+
+```bash
+cargo run -- scan https://example.com
+cargo run -- scan https://example.com --json
+```
+
+### `doctor`
+
+Checks the WebDriver status endpoint, creates a real browser session, and runs a script.
+
+```bash
+cargo run -- doctor
+cargo run -- doctor --webdriver-url http://localhost:4444
+```
+
+## Discovery modes
+
+- `auto` — static scan first, browser-backed downloads still available during `grab`
+- `static` — HTML/CSS discovery only
+- `render` — force browser-backed CSSOM discovery
 
 ## Requirements
 
 - Rust toolchain
-- A WebDriver endpoint for `render` mode, such as `chromedriver` or Selenium
+- A WebDriver endpoint for render mode and browser-context fallback downloads
 
 Default WebDriver URL:
 
@@ -30,66 +73,22 @@ Default WebDriver URL:
 http://localhost:4444
 ```
 
-## Quick Start
-
-Interactive mode:
-
-```bash
-cd rust
-cargo run -- grab
-```
-
-Start with a URL:
-
-```bash
-cd rust
-cargo run -- grab --url https://example.com
-```
-
-Batch mode:
-
-```bash
-cd rust
-cargo run -- grab --url https://example.com --all --no-ui
-```
-
-Check WebDriver availability:
-
-```bash
-cd rust
-cargo run -- doctor
-```
-
-Run tests:
-
-```bash
-cd rust
-cargo test
-```
-
-## Discovery Modes
-
-- `auto` — static scan first, escalate to browser discovery when needed
-- `static` — HTML/CSS discovery only
-- `render` — force browser-backed CSSOM discovery
-
-## Project Structure
+## Project layout
 
 ```text
 rust/
   src/
-    main.rs        CLI entrypoint
-    tui.rs         ratatui terminal interface
-    discovery.rs   font discovery pipeline
-    downloader.rs  HTTP + browser-context download pipeline
-    converter.rs   WOFF/WOFF2/sfnt conversion helpers
-    output.rs      output directory writing
-    pipeline.rs    orchestration layer
-    util.rs        shared formatting/path helpers
-    models.rs      shared application models
+    app/         command flows
+    cli/         clap definitions
+    convert/     sfnt conversion + name repair
+    discovery/   static + browser discovery
+    domain/      shared models and reports
+    fetch/       HTTP + browser-backed downloads
+    output/      filenames and writing
+    support/     HTTP, WebDriver, terminal helpers
 ```
 
-More implementation details live in `rust/README.md`.
+More detail lives in `rust/README.md`.
 
 ## License
 

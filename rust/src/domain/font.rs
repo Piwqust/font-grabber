@@ -1,42 +1,9 @@
-use std::{fmt, path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
-use clap::ValueEnum;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-pub type Logger = Arc<dyn Fn(String) + Send + Sync + 'static>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
-pub enum DiscoveryMode {
-    Auto,
-    Static,
-    Render,
-}
-
-impl DiscoveryMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Static => "static",
-            Self::Render => "render",
-        }
-    }
-
-    pub fn should_try_browser(self, static_found: bool) -> bool {
-        match self {
-            Self::Static => false,
-            Self::Render => true,
-            Self::Auto => !static_found,
-        }
-    }
-}
-
-impl fmt::Display for DiscoveryMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.label())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FontFormat {
     Woff2,
     Woff,
@@ -102,13 +69,27 @@ impl FontFormat {
         }
     }
 
+    pub fn sniff(bytes: &[u8]) -> Self {
+        if bytes.len() < 4 {
+            return Self::Unknown;
+        }
+
+        match [bytes[0], bytes[1], bytes[2], bytes[3]] {
+            [0x77, 0x4F, 0x46, 0x32] => Self::Woff2,
+            [0x77, 0x4F, 0x46, 0x46] => Self::Woff,
+            [0x00, 0x01, 0x00, 0x00] | [0x74, 0x72, 0x75, 0x65] => Self::TrueType,
+            [0x4F, 0x54, 0x54, 0x4F] => Self::OpenType,
+            _ => Self::Unknown,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Woff2 => "woff2",
             Self::Woff => "woff",
-            Self::TrueType => "truetype",
-            Self::OpenType => "opentype",
-            Self::EmbeddedOpenType => "embedded-opentype",
+            Self::TrueType => "ttf",
+            Self::OpenType => "otf",
+            Self::EmbeddedOpenType => "eot",
             Self::Svg => "svg",
             Self::Unknown => "unknown",
         }
@@ -131,77 +112,68 @@ impl FontFormat {
     }
 }
 
-impl fmt::Display for FontFormat {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.label())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScanSource {
     StaticCss,
     BrowserCss,
+    BrowserNetwork,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TransferMethod {
-    BrowserFetch,
-    HttpFetch,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JobState {
-    Idle,
-    Discovering,
-    Reviewing,
-    Processing,
-    Done,
-    Error,
-}
-
-impl JobState {
+impl ScanSource {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Idle => "Idle",
-            Self::Discovering => "Discovering",
-            Self::Reviewing => "Ready",
-            Self::Processing => "Processing",
-            Self::Done => "Done",
-            Self::Error => "Error",
+            Self::StaticCss => "static css",
+            Self::BrowserCss => "browser css",
+            Self::BrowserNetwork => "browser network",
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FontSourceRef {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransferMethod {
+    Http,
+    Browser,
+}
+
+impl TransferMethod {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Browser => "browser",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FontSource {
     pub url: String,
     pub format: FontFormat,
 }
 
-#[derive(Debug, Clone)]
-pub struct DiscoveredFont {
+#[derive(Debug, Clone, Serialize)]
+pub struct FontCandidate {
     pub id: String,
     pub family: String,
     pub style: String,
     pub weight: String,
-    pub sources: Vec<FontSourceRef>,
-    pub is_variable: bool,
+    pub sources: Vec<FontSource>,
     pub unicode_range: Option<String>,
+    pub variable: bool,
     pub scan_source: ScanSource,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct CachedFont {
-    pub info: DiscoveredFont,
+    pub info: FontCandidate,
     pub cached_path: PathBuf,
     pub downloaded_format: FontFormat,
     pub source_url: String,
     pub transfer_method: TransferMethod,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct VariableAxis {
     pub tag: String,
     pub name: String,
@@ -210,7 +182,8 @@ pub struct VariableAxis {
     pub max: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OutputFormat {
     Ttf,
     Otf,
@@ -225,48 +198,28 @@ impl OutputFormat {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ConvertedFont {
-    pub info: DiscoveredFont,
+    pub info: FontCandidate,
     pub data: Vec<u8>,
     pub output_format: OutputFormat,
-    pub filename: String,
     pub variable_axes_preserved: bool,
     pub axes: Vec<VariableAxis>,
+    pub source_url: String,
+    pub transfer_method: TransferMethod,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SavedFont {
-    pub converted: ConvertedFont,
+    pub family: String,
+    pub style: String,
+    pub weight: String,
+    pub unicode_range: Option<String>,
     pub output_path: PathBuf,
-}
-
-#[derive(Debug, Clone)]
-pub struct DiscoverRequest {
-    pub page_url: String,
-    pub mode: DiscoveryMode,
-    pub webdriver_url: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct DiscoveryReport {
-    pub fonts: Vec<DiscoveredFont>,
-    pub used_browser: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct ProcessRequest {
-    pub page_url: String,
-    pub fonts: Vec<DiscoveredFont>,
-    pub output_dir: PathBuf,
-    pub prefer_browser_fetch: bool,
-    pub webdriver_url: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct ProcessSummary {
-    pub saved: Vec<SavedFont>,
-    pub download_failures: Vec<String>,
-    pub conversion_failures: Vec<String>,
+    pub output_format: OutputFormat,
+    pub variable_axes_preserved: bool,
+    pub axes: Vec<VariableAxis>,
+    pub scan_source: ScanSource,
+    pub transfer_method: TransferMethod,
+    pub source_url: String,
 }

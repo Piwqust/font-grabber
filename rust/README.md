@@ -1,58 +1,72 @@
-# Font Grabber RS
+# Font Grabber
 
-Rust-first rewrite of Font Grabber.
+Rust rewrite focused on a cleaner CLI, a simpler architecture, and more reliable browser fallbacks.
 
-## Stack
+## Commands
 
-- `clap` for CLI entry points
-- `tokio` async runtime
-- `ratatui` + `crossterm` terminal UI
-- `reqwest` for static HTML/CSS and HTTP downloads
-- `thirtyfour` + WebDriver for JS-rendered discovery / browser-context downloads
-- `wuff` + `ttf-parser` for font conversion and variable-axis inspection
+### Grab
 
-## Modes
-
-- `auto` — static scan first, escalate to browser only when needed
-- `static` — HTML/CSS discovery only
-- `render` — force browser-backed CSSOM discovery
-
-## Run
+Discover fonts, optionally review the list interactively, then download, convert, and save.
 
 ```bash
-cargo run -- grab
+cargo run -- grab https://example.com
+cargo run -- grab https://example.com --all
+cargo run -- grab https://example.com --mode render --concurrency 8
 ```
 
-With an initial URL:
+Flags:
+
+- `-o, --output <dir>` — output directory
+- `-a, --all` — skip selection and save every discovered font
+- `--mode <auto|static|render>` — discovery strategy
+- `--webdriver-url <url>` — WebDriver endpoint
+- `--concurrency <n>` — max concurrent HTTP downloads
+- `--json` — machine-readable output (requires `--all`)
+
+### Scan
+
+Discovery only.
 
 ```bash
-cargo run -- grab --url https://example.com
+cargo run -- scan https://example.com
+cargo run -- scan https://example.com --mode render
+cargo run -- scan https://example.com --json
 ```
 
-Non-interactive batch mode:
+### Doctor
 
-```bash
-cargo run -- grab --url https://example.com --all --no-ui
-```
-
-Check WebDriver availability:
+Probes WebDriver `/status`, creates a real browser session, loads a page, and runs a script.
 
 ```bash
 cargo run -- doctor
 ```
 
-Run tests:
+## Discovery modes
 
-```bash
-cargo test
+- `auto` — static scan first, with browser-backed download fallback still available during `grab`
+- `static` — HTML/CSS discovery only
+- `render` — force browser CSSOM discovery
+
+## Architecture
+
+```text
+src/
+  app/         command flows (`grab`, `scan`, `doctor`)
+  cli/         clap parsing
+  convert/     WOFF/WOFF2 -> sfnt, inspection, conservative name repair
+  discovery/   static CSS parsing + browser CSSOM discovery
+  domain/      shared types and serializable reports
+  fetch/       HTTP download + browser-context retry
+  output/      output naming and file writing
+  support/     URL helpers, HTTP client, WebDriver helpers, terminal UI helpers
 ```
 
 ## Render mode requirement
 
-Render mode expects a running WebDriver endpoint, for example `chromedriver` or Selenium at:
+Browser-assisted discovery and browser-context downloads expect a WebDriver endpoint, such as Chromedriver or Selenium:
 
 ```text
 http://localhost:4444
 ```
 
-You can override it with `--webdriver-url`.
+Override it with `--webdriver-url`.

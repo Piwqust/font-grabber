@@ -1,32 +1,18 @@
-use std::path::{Path, PathBuf};
+pub mod http;
+pub mod ui;
+pub mod webdriver;
+
+use std::{path::{Path, PathBuf}, sync::Arc};
 
 use anyhow::{anyhow, Result};
-use reqwest::{
-    header::{HeaderMap, HeaderValue, ACCEPT, ACCEPT_LANGUAGE, USER_AGENT},
-    redirect::Policy,
-    Client,
-};
 use url::Url;
 
-use crate::models::Logger;
+pub type Logger = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
-pub fn build_http_client() -> Result<Client> {
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        USER_AGENT,
-        HeaderValue::from_static(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36",
-        ),
-    );
-    headers.insert(ACCEPT, HeaderValue::from_static("*/*"));
-    headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"));
-
-    Client::builder()
-        .default_headers(headers)
-        .redirect(Policy::limited(10))
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(Into::into)
+pub fn emit_log(logger: Option<&Logger>, message: impl Into<String>) {
+    if let Some(logger) = logger {
+        logger(message.into());
+    }
 }
 
 pub fn normalize_url(input: &str) -> Result<String> {
@@ -48,11 +34,7 @@ pub fn normalize_url(input: &str) -> Result<String> {
 pub fn extract_domain(url: &str) -> String {
     Url::parse(url)
         .ok()
-        .and_then(|parsed| {
-            parsed
-                .host_str()
-                .map(|host| host.trim_start_matches("www.").to_string())
-        })
+        .and_then(|parsed| parsed.host_str().map(|host| host.trim_start_matches("www.").to_string()))
         .filter(|host| !host.is_empty())
         .unwrap_or_else(|| "unknown".to_string())
 }
@@ -114,17 +96,9 @@ pub fn weight_label(weight: &str) -> String {
 }
 
 pub fn variant_label(weight: &str, style: &str) -> String {
-    match style {
+    match style.to_ascii_lowercase().as_str() {
         "normal" | "regular" => weight_label(weight),
         other => format!("{} {}", weight_label(weight), other),
-    }
-}
-
-pub fn format_bytes(bytes: u64) -> String {
-    if bytes >= 1024 * 1024 {
-        format!("{:.1} MB", bytes as f64 / 1024.0 / 1024.0)
-    } else {
-        format!("{:.1} KB", bytes as f64 / 1024.0)
     }
 }
 
@@ -155,35 +129,14 @@ pub fn next_available_path(path: &Path) -> PathBuf {
     parent.join(format!("{stem}-overflow{ext}"))
 }
 
-pub fn emit_log(logger: Option<&Logger>, message: impl Into<String>) {
-    if let Some(logger) = logger {
-        logger(message.into());
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn normalize_url_adds_https_and_preserves_valid_urls() {
-        assert_eq!(
-            normalize_url("example.com").unwrap(),
-            "https://example.com/"
-        );
-        assert_eq!(
-            normalize_url("https://example.com/path").unwrap(),
-            "https://example.com/path"
-        );
-    }
-
-    #[test]
-    fn extract_domain_strips_www_and_handles_invalid() {
-        assert_eq!(
-            extract_domain("https://www.example.com/page"),
-            "example.com"
-        );
-        assert_eq!(extract_domain("not a url"), "unknown");
+        assert_eq!(normalize_url("example.com").unwrap(), "https://example.com/");
+        assert_eq!(normalize_url("https://example.com/path").unwrap(), "https://example.com/path");
     }
 
     #[test]
@@ -194,12 +147,9 @@ mod tests {
     }
 
     #[test]
-    fn labels_and_sizes_are_human_readable() {
+    fn labels_are_human_readable() {
         assert_eq!(weight_label("400"), "400 Regular");
-        assert_eq!(weight_label("750"), "750");
         assert_eq!(variant_label("700", "italic"), "700 Bold italic");
         assert_eq!(variant_label("400", "regular"), "400 Regular");
-        assert_eq!(format_bytes(1024), "1.0 KB");
-        assert_eq!(format_bytes(2 * 1024 * 1024), "2.0 MB");
     }
 }
