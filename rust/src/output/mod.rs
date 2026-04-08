@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     domain::{ConvertedFont, SavedFont},
-    support::{emit_log, next_available_path, sanitize_family_dir, sanitize_file_stem, Logger},
+    support::{emit_log, next_available_path, sanitize_file_stem, Logger},
 };
 
 pub fn save_converted_fonts(
@@ -18,13 +18,8 @@ pub fn save_converted_fonts(
     let mut saved = Vec::new();
 
     for font in converted_fonts {
-        let family_dir = sanitize_family_dir(&font.info.family);
-        let target_dir = output_dir.join(if family_dir.is_empty() { "Font" } else { family_dir.as_str() });
-        fs::create_dir_all(&target_dir)
-            .with_context(|| format!("Failed to create family directory {}", target_dir.display()))?;
-
         let filename = build_output_filename(font);
-        let path = next_available_path(&target_dir.join(filename));
+        let path = next_available_path(&output_dir.join(filename));
         fs::write(&path, &font.data)
             .with_context(|| format!("Failed to write converted font {}", path.display()))?;
 
@@ -34,6 +29,7 @@ pub fn save_converted_fonts(
             family: font.info.family.clone(),
             style: font.info.style.clone(),
             weight: font.info.weight.clone(),
+            stretch: font.info.stretch.clone(),
             unicode_range: font.info.unicode_range.clone(),
             output_path: path,
             output_format: font.output_format,
@@ -52,6 +48,12 @@ fn build_output_filename(font: &ConvertedFont) -> String {
     let family = sanitize_file_stem(&font.info.family);
     let weight = sanitize_file_stem(&font.info.weight).to_ascii_lowercase();
     let style = sanitize_file_stem(&font.info.style).to_ascii_lowercase();
+    let stretch_suffix = font
+        .info
+        .stretch
+        .as_ref()
+        .map(|stretch| format!("-stretch-{}", sanitize_file_stem(stretch).to_ascii_lowercase()))
+        .unwrap_or_default();
     let style_suffix = if matches!(style.as_str(), "normal" | "regular") {
         String::new()
     } else {
@@ -66,10 +68,11 @@ fn build_output_filename(font: &ConvertedFont) -> String {
         .unwrap_or_default();
 
     format!(
-        "{}-{}{}{}{}.{}",
+        "{}-{}{}{}{}{}.{}",
         family,
         weight,
         style_suffix,
+        stretch_suffix,
         variable_suffix,
         subset_suffix,
         font.output_format.extension()
@@ -97,6 +100,7 @@ mod tests {
                 family: "Acme Sans".into(),
                 style: "italic".into(),
                 weight: "700".into(),
+                stretch: None,
                 sources: vec![FontSource { url: "https://example.com/font.woff2".into(), format: FontFormat::Woff2 }],
                 unicode_range: None,
                 variable: false,

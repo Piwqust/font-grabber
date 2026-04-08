@@ -95,10 +95,20 @@ pub fn weight_label(weight: &str) -> String {
     }
 }
 
-pub fn variant_label(weight: &str, style: &str) -> String {
-    match style.to_ascii_lowercase().as_str() {
+pub fn variant_label(weight: &str, style: &str, stretch: Option<&str>, variable: bool) -> String {
+    let base = match style.to_ascii_lowercase().as_str() {
         "normal" | "regular" => weight_label(weight),
         other => format!("{} {}", weight_label(weight), other),
+    };
+    let stretched = match stretch.filter(|value| !value.is_empty()) {
+        Some(stretch) => format!("{} / {}", base, stretch),
+        None => base,
+    };
+
+    if variable {
+        format!("{} / Variable", stretched)
+    } else {
+        stretched
     }
 }
 
@@ -149,7 +159,8 @@ mod tests {
     #[test]
     fn labels_are_human_readable() {
         assert_eq!(weight_label("400"), "400 Regular");
-        assert_eq!(variant_label("700", "italic"), "700 Bold italic");
-        assert_eq!(variant_label("400", "regular"), "400 Regular");
+        assert_eq!(variant_label("700", "italic", None, false), "700 Bold italic");
+        assert_eq!(variant_label("400", "regular", None, false), "400 Regular");
+        assert_eq!(variant_label("400", "regular", Some("75% 125%"), true), "400 Regular / 75% 125% / Variable");
     }
 }

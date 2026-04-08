@@ -68,7 +68,7 @@ pub fn print_scan_report(report: &ScanReport) {
         for font in fonts {
             println!(
                 "  {}  {}  {}  {}",
-                style(variant_label(&font.weight, &font.style)).cyan(),
+                style(variant_label(&font.weight, &font.style, font.stretch.as_deref(), font.variable)).cyan(),
                 style(format_sources(font)).dim(),
                 style(font.scan_source.label()).dim(),
                 style(subset_badge(font)).dim(),
@@ -91,7 +91,7 @@ pub fn print_grab_report(report: &GrabReport) {
             println!(
                 "{} {} {}",
                 style("•").green(),
-                style(format!("{} — {}", saved.family, variant_label(&saved.weight, &saved.style))).bold(),
+                style(format!("{} — {}", saved.family, variant_label(&saved.weight, &saved.style, saved.stretch.as_deref(), saved.variable_axes_preserved))).bold(),
                 style(saved.output_path.display()).dim(),
             );
         }
@@ -132,7 +132,7 @@ fn selection_label(font: &FontCandidate) -> String {
     format!(
         "{} — {} — {} — {}{}",
         font.family,
-        variant_label(&font.weight, &font.style),
+        variant_label(&font.weight, &font.style, font.stretch.as_deref(), font.variable),
         format_sources(font),
         font.scan_source.label(),
         subset_suffix(font)

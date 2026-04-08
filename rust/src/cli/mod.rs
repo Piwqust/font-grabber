@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{value_parser, Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 use crate::domain::DiscoveryMode;
 
@@ -47,7 +47,7 @@ pub struct GrabArgs {
     #[arg(
         long,
         default_value_t = 6,
-        value_parser = value_parser!(usize).range(1..=32),
+        value_parser = parse_concurrency,
         help = "Maximum concurrent HTTP downloads"
     )]
     pub concurrency: usize,
@@ -86,4 +86,16 @@ pub struct DoctorArgs {
 
     #[arg(long, help = "Print machine-readable JSON")]
     pub json: bool,
+}
+
+fn parse_concurrency(value: &str) -> Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| "Concurrency must be a whole number".to_string())?;
+
+    if (1..=32).contains(&parsed) {
+        Ok(parsed)
+    } else {
+        Err("Concurrency must be between 1 and 32".to_string())
+    }
 }

@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use serde_json::Value;
+use tokio::time::{sleep, Duration};
 
 use crate::{
     discovery::{parser, CollectorResult},
@@ -15,6 +16,7 @@ struct BrowserFontFaceRule {
     family: String,
     style: String,
     weight: String,
+    stretch: Option<String>,
     src: String,
     #[serde(rename = "baseUrl")]
     base_url: Option<String>,
@@ -42,6 +44,9 @@ pub async fn discover(
             .await
             .with_context(|| format!("Could not open {page_url}"))?;
         webdriver::wait_for_page_ready(&driver).await?;
+        let _ = driver.execute(BROWSER_WARMUP_SCRIPT, Vec::<Value>::new()).await;
+        sleep(Duration::from_millis(1200)).await;
+        let _ = webdriver::wait_for_page_ready(&driver).await;
 
         emit_log(logger.as_ref(), "Extracting browser CSSOM and resource data");
         let payload: BrowserDiscoveryPayload = driver
@@ -57,6 +62,7 @@ pub async fn discover(
                 &rule.family,
                 &rule.style,
                 &rule.weight,
+                rule.stretch.as_deref(),
                 &rule.src,
                 rule.unicode_range.as_deref(),
                 rule.base_url.as_deref().unwrap_or(page_url),
@@ -83,6 +89,7 @@ pub async fn discover(
                 family: guess_family_from_resource_url(&resource),
                 style: "normal".to_string(),
                 weight: "400".to_string(),
+                stretch: None,
                 sources: vec![FontSource { url: resource, format }],
                 unicode_range: None,
                 variable: false,
@@ -103,44 +110,45 @@ return (() => {
   const rules = [];
   const resources = [];
 
+  const pushFontFaceRule = (rule, fallbackBaseUrl) => {
+    const style = rule.style;
+    rules.push({
+      family: (style.getPropertyValue('font-family') || '').replace(/["']/g, '').trim(),
+      style: style.getPropertyValue('font-style') || 'normal',
+      weight: style.getPropertyValue('font-weight') || '400',
+      stretch: style.getPropertyValue('font-stretch') || '',
+      src: style.getPropertyValue('src') || '',
+      baseUrl: (rule.parentStyleSheet && rule.parentStyleSheet.href) || fallbackBaseUrl || document.location.href,
+      unicodeRange: style.getPropertyValue('unicode-range') || ''
+    });
+  };
+
+  const walkRules = (cssRules, fallbackBaseUrl) => {
+    if (!cssRules) return;
+    for (const rule of Array.from(cssRules)) {
+      if (rule instanceof CSSFontFaceRule) {
+        pushFontFaceRule(rule, fallbackBaseUrl);
+        continue;
+      }
+
+      if (rule instanceof CSSImportRule && rule.styleSheet) {
+        try {
+          walkRules(rule.styleSheet.cssRules || rule.styleSheet.rules || [], rule.styleSheet.href || fallbackBaseUrl);
+        } catch (_) {}
+        continue;
+      }
+
+      if (rule.cssRules || rule.rules) {
+        try {
+          walkRules(rule.cssRules || rule.rules || [], fallbackBaseUrl);
+        } catch (_) {}
+      }
+    }
+  };
+
   for (const sheet of Array.from(document.styleSheets)) {
     try {
-      const cssRules = sheet.cssRules || sheet.rules;
-      if (!cssRules) continue;
-      for (const rule of Array.from(cssRules)) {
-        if (rule instanceof CSSFontFaceRule) {
-          const style = rule.style;
-          rules.push({
-            family: (style.getPropertyValue('font-family') || '').replace(/["']/g, '').trim(),
-            style: style.getPropertyValue('font-style') || 'normal',
-            weight: style.getPropertyValue('font-weight') || '400',
-            src: style.getPropertyValue('src') || '',
-            baseUrl: (rule.parentStyleSheet && rule.parentStyleSheet.href) || document.location.href,
-            unicodeRange: style.getPropertyValue('unicode-range') || ''
-          });
-        }
-
-        if (rule instanceof CSSImportRule && rule.styleSheet) {
-          try {
-            const imported = rule.styleSheet.cssRules || [];
-            for (const importedRule of Array.from(imported)) {
-              if (importedRule instanceof CSSFontFaceRule) {
-                const style = importedRule.style;
-                rules.push({
-                  family: (style.getPropertyValue('font-family') || '').replace(/["']/g, '').trim(),
-                  style: style.getPropertyValue('font-style') || 'normal',
-                  weight: style.getPropertyValue('font-weight') || '400',
-                  src: style.getPropertyValue('src') || '',
-                  baseUrl: (importedRule.parentStyleSheet && importedRule.parentStyleSheet.href) || document.location.href,
-                  unicodeRange: style.getPropertyValue('unicode-range') || ''
-                });
-              }
-            }
-          } catch (_) {
-            continue;
-          }
-        }
-      }
+      walkRules(sheet.cssRules || sheet.rules || [], sheet.href || document.location.href);
     } catch (_) {
       continue;
     }
@@ -154,6 +162,22 @@ return (() => {
   }
 
   return { rules, resources: Array.from(new Set(resources)) };
+})();
+"#;
+
+const BROWSER_WARMUP_SCRIPT: &str = r#"
+return (() => {
+  try {
+    const toggle = document.querySelector('[data-component="tt-toggle"]');
+    if (toggle) {
+      toggle.click();
+    }
+    window.scrollTo(0, document.body.scrollHeight || 0);
+    window.scrollTo(0, 0);
+    return true;
+  } catch (_) {
+    return false;
+  }
 })();
 "#;
 
