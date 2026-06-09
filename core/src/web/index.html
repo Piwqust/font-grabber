@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Font Grabber</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-meta">
+      <span><span class="dot">●</span> Font Grabber</span>
+      <span>Local Edition</span>
+      <span id="masthead-count">No. 001</span>
+    </div>
+
+    <h1 class="wordmark">Grab the <em>type</em> from any page.</h1>
+
+    <form id="scan-form" class="scan">
+      <input id="url" class="scan-input" type="text" placeholder="Paste a URL — https://grillitype.com" autocomplete="off" spellcheck="false" required>
+      <select id="mode" class="scan-mode" title="Discovery strategy">
+        <option value="auto">Auto</option>
+        <option value="static">Static</option>
+        <option value="render">Render</option>
+      </select>
+      <button id="scan-btn" class="scan-go" type="submit">Scan&nbsp;↦</button>
+    </form>
+
+    <p id="scan-status" class="status"></p>
+    <div id="warnings" class="warnings" hidden></div>
+  </header>
+
+  <section id="results" class="results" hidden>
+    <div class="controls">
+      <label class="ctl grow">
+        <span class="ctl-label">Sample text</span>
+        <input id="sample" type="text" value="Whereas recognition of the inherent dignity" autocomplete="off">
+      </label>
+      <div class="ctl">
+        <span class="ctl-label">Size</span>
+        <div class="size-row">
+          <input id="size" type="range" min="14" max="120" value="44">
+          <span id="size-value" class="size-val">44</span>
+        </div>
+      </div>
+      <label class="ctl">
+        <span class="ctl-label">Filter</span>
+        <input id="filter" type="search" placeholder="name or file" autocomplete="off">
+      </label>
+      <div class="ctl-actions">
+        <button id="select-all" class="txt-btn" type="button">All</button>
+        <button id="select-none" class="txt-btn" type="button">None</button>
+        <span id="count" class="count"></span>
+      </div>
+    </div>
+
+    <div id="font-list" class="specimens"></div>
+  </section>
+
+  <footer id="grab-bar" class="grab-bar" hidden>
+    <span id="selected-count" class="selected-count">0 selected</span>
+    <div class="seg">
+      <label><input type="radio" name="delivery" value="zip" checked> Zip</label>
+      <label><input type="radio" name="delivery" value="folder"> Folder</label>
+    </div>
+    <input id="output-dir" type="text" placeholder="output folder — blank = ./fonts/<domain>" hidden>
+    <button id="grab-btn" class="grab-go" type="button" disabled>Grab&nbsp;→</button>
+    <span id="grab-status" class="grab-status"></span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

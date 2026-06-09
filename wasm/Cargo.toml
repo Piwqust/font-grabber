@@ -1,0 +1,22 @@
+# Standalone WebAssembly crate for the Chrome extension.
+# Deliberately decoupled from ../core (no tokio/reqwest/axum) so it compiles to
+# wasm32-unknown-unknown. Reuses the exact decompression + name-repair logic.
+[package]
+name = "font-convert-wasm"
+version = "1.0.0"
+edition = "2021"
+license = "ISC"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0"
+wuff = { version = "0.2.3", features = ["z", "brotli"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+panic = "abort"
+strip = true
+codegen-units = 1

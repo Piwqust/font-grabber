@@ -1,34 +1,39 @@
+# Rust build output
+/core/target/
+/wasm/target/
+
+# Node / legacy TypeScript app
+node_modules/
+dist/
+dist-ssr/
+
+# Local font output & scratch
+fonts/
+test-fonts/
+test-fonts2/
+nul
+
+# Build/scratch artifacts
+*.bun-build
+.impeccable.md
+
 # Logs
 logs
 *.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-rust/target
-fonts/
-test-fonts/
-test-fonts2/
-*.bun-build
-nul
-.impeccable.md
+# Env
 *.local
 .env
 .env.*
 !.env.example
 
-# Editor directories and files
+# Editor / OS
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
 *.suo
-*.ntvs*
-*.njsproj
-*.sln
 *.sw?

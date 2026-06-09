@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand"><span class="dot">●</span> Font Grabber</span>
+    <span id="origin" class="origin"></span>
+  </header>
+
+  <div class="controls">
+    <input id="filter" type="search" placeholder="Filter by name or file" autocomplete="off">
+    <div class="row">
+      <input id="sample" type="text" value="The quick brown fox" autocomplete="off">
+      <input id="size" type="range" min="12" max="64" value="30" title="Preview size">
+    </div>
+    <div class="row actions-row">
+      <button id="select-all" class="txt-btn" type="button">All</button>
+      <button id="select-none" class="txt-btn" type="button">None</button>
+      <span id="count" class="count"></span>
+    </div>
+  </div>
+
+  <main id="font-list" class="specimens">
+    <p id="empty" class="empty">Scanning this page…</p>
+  </main>
+
+  <footer class="grab-bar">
+    <span id="status" class="status"></span>
+    <div class="actions">
+      <button id="grab-files" class="ghost" type="button" disabled>Save files</button>
+      <button id="grab-zip" class="primary" type="button" disabled>Download ZIP</button>
+    </div>
+  </footer>
+
+  <script src="zip.js"></script>
+  <script src="convert.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

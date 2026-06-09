@@ -1,0 +1,153 @@
+/* Font Grabber — extension popup, editorial / type-foundry. Compact sibling of
+   the web app: warm paper, near-black ink, one vermilion accent. */
+
+:root {
+  --paper: #ece8df;
+  --paper-card: #f1eee7;
+  --ink: #17150f;
+  --ink-2: #4c473b;
+  --muted: #8b8576;
+  --line: rgba(23, 21, 15, 0.14);
+  --line-strong: rgba(23, 21, 15, 0.34);
+  --accent: #e8431e;
+  --ok: #1f7a4d;
+  --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  width: 384px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+body { display: flex; flex-direction: column; max-height: 588px; }
+::selection { background: var(--accent); color: #fff; }
+
+input, button { font: inherit; color: inherit; }
+button { cursor: pointer; }
+.mono { font-family: var(--mono); }
+
+/* Topbar --------------------------------------------------------------- */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--ink);
+}
+.brand {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+}
+.brand .dot { color: var(--accent); }
+.origin {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Controls ------------------------------------------------------------- */
+.controls {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.row { display: flex; align-items: center; gap: 12px; }
+
+input[type="search"], input[type="text"] {
+  flex: 1; min-width: 0;
+  border: none; border-bottom: 1px solid var(--line-strong);
+  background: transparent; padding: 5px 0; font-size: 13px; outline: none;
+}
+input:focus { border-color: var(--accent); }
+input[type="range"] { width: 104px; accent-color: var(--accent); flex: none; }
+
+.txt-btn {
+  background: none; border: none; padding: 3px 2px;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-2); border-bottom: 1px solid transparent;
+}
+.txt-btn:hover { color: var(--accent); border-color: var(--accent); }
+.actions-row { gap: 10px; }
+.count { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: auto; }
+
+/* Specimens ------------------------------------------------------------ */
+.specimens { flex: 1; overflow-y: auto; padding: 0 16px; }
+.specimen {
+  border-bottom: 1px solid var(--line);
+  padding: 12px 0 14px;
+  position: relative;
+  animation: rise 0.3s ease both;
+  animation-delay: var(--d, 0s);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.specimen::before {
+  content: ""; position: absolute; left: -16px; top: 0; bottom: -1px; width: 3px;
+  background: var(--accent); transform: scaleY(0); transform-origin: top; transition: transform 0.18s;
+}
+.specimen.selected::before { transform: scaleY(1); }
+.specimen:hover { background: var(--paper-card); }
+
+.specimen-head { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.pick { display: flex; align-items: center; gap: 9px; cursor: pointer; min-width: 0; }
+.pick input { position: absolute; opacity: 0; width: 0; height: 0; }
+.mark {
+  flex: none; width: 14px; height: 14px; border: 1.5px solid var(--line-strong);
+  border-radius: 3px; position: relative; transition: 0.15s;
+}
+.pick input:focus-visible + .mark { outline: 2px solid var(--accent); outline-offset: 2px; }
+.specimen.selected .mark { background: var(--accent); border-color: var(--accent); }
+.specimen.selected .mark::after {
+  content: ""; position: absolute; left: 4px; top: 1px; width: 3px; height: 7px;
+  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(42deg);
+}
+.idx { font-family: var(--mono); font-size: 10.5px; color: var(--muted); flex: none; }
+.font-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.specimen.selected .font-name { color: var(--accent); }
+.badges { display: flex; gap: 5px; margin-left: auto; flex: none; }
+.badge {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--ink-2); border: 1px solid var(--line-strong); border-radius: 999px; padding: 1px 7px; white-space: nowrap;
+}
+.badge.fmt { color: var(--accent); border-color: var(--accent); }
+.badge.variable { color: var(--ink); border-color: var(--ink); }
+
+.preview {
+  font-size: var(--preview-size, 30px);
+  line-height: 1.18;
+  letter-spacing: -0.01em;
+  word-break: break-word;
+  margin: 0;
+}
+.preview.loading { color: var(--muted); opacity: 0.4; }
+
+.empty { padding: 30px 6px; text-align: center; color: var(--muted); font-family: var(--mono); font-size: 11.5px; line-height: 1.6; }
+.empty.error { color: var(--accent); }
+
+/* Grab bar ------------------------------------------------------------- */
+.grab-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  background: var(--ink);
+  border-top: 1px solid var(--ink);
+}
+.status {
+  flex: 1; min-width: 0; font-family: var(--mono); font-size: 10.5px; color: #cbc6b8;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.status.error { color: #ff9a82; }
+.status.ok { color: #8fd6a8; }
+.actions { display: flex; gap: 8px; flex: none; }
+.ghost {
+  background: transparent; border: 1px solid rgba(255,255,255,0.3); color: #e4dfd2;
+  border-radius: 999px; padding: 6px 13px; font-size: 12px;
+}
+.ghost:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
+.primary {
+  background: var(--accent); border: none; color: #fff;
+  border-radius: 999px; padding: 6px 15px; font-size: 12px; font-weight: 600;
+}
+.primary:hover:not(:disabled) { filter: brightness(1.08); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
