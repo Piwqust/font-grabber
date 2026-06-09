@@ -55,7 +55,8 @@ to convert.
 | `manifest.json` | MV3 manifest (permissions, CSP with `wasm-unsafe-eval`) |
 | `popup.html` / `popup.css` / `popup.js` | The popup UI and orchestration |
 | `background.js` | Service worker: records font responses per tab via `webRequest` |
-| `capture.js` | `document_start` MAIN-world hook for `FontFace`/`fetch` |
+| `capture.js` | `document_start` MAIN-world hook for `FontFace`/`fetch` (shared with the CLI/web app) |
+| `discover.js` | The page font collector — **shared** with the Rust CLI/web app (`core` `include_str!`s it) |
 | `convert.js` | Loads `convert.wasm` and exposes `convert(bytes, …)` |
 | `convert.wasm` | The Rust conversion core (built from `../wasm`) |
 | `zip.js` | Minimal ZIP writer using the browser's native `deflate-raw` |

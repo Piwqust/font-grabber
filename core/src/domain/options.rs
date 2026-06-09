@@ -20,12 +20,11 @@ impl DiscoveryMode {
         }
     }
 
-    pub fn should_collect_browser(self, static_found: bool) -> bool {
-        match self {
-            Self::Static => false,
-            Self::Render => true,
-            Self::Auto => !static_found,
-        }
+    /// Whether to run embedded-browser discovery. `auto` always does (and merges
+    /// with the static result) so dynamic / catalog fonts are never missed;
+    /// `render` is browser-only; `static` never launches a browser.
+    pub fn should_collect_browser(self) -> bool {
+        !matches!(self, Self::Static)
     }
 }
 

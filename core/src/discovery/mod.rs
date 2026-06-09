@@ -1,4 +1,4 @@
-mod browser_css;
+mod headless;
 mod parser;
 mod static_css;
 
@@ -35,21 +35,22 @@ pub async fn scan(request: &ScanRequest, logger: Option<Logger>) -> Result<ScanR
     let mut used_browser = false;
     let mut fonts = static_result.fonts;
 
-    if request.mode.should_collect_browser(!fonts.is_empty()) {
-        emit_log(
-            logger.as_ref(),
-            format!(
-                "Escalating to browser discovery via {}",
-                request.webdriver_url
-            ),
-        );
-        let browser_result =
-            browser_css::discover(&request.page_url, &request.webdriver_url, logger.clone())
-                .await
-                .context("Browser discovery failed")?;
-        fonts = parser::merge_fonts(fonts, browser_result.fonts);
-        warnings.extend(browser_result.warnings);
-        used_browser = true;
+    if request.mode.should_collect_browser() {
+        match headless::discover(&request.page_url, logger.clone()).await {
+            Ok(browser_result) => {
+                fonts = parser::merge_fonts(fonts, browser_result.fonts);
+                warnings.extend(browser_result.warnings);
+                used_browser = true;
+            }
+            // In `render` a browser failure is fatal; in `auto` we fall back to
+            // whatever static discovery already found.
+            Err(error) if matches!(request.mode, crate::domain::DiscoveryMode::Render) => {
+                return Err(error.context("Browser discovery failed"));
+            }
+            Err(error) => {
+                warnings.push(format!("Browser discovery unavailable: {error}"));
+            }
+        }
     }
 
     if request.enrich_scripts {

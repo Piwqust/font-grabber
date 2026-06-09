@@ -64,29 +64,39 @@ Then `chrome://extensions` → **Developer mode** → **Load unpacked** → sele
 cd core
 cargo run -- grab https://example.com          # discover, select, convert, save
 cargo run -- grab https://example.com --all    # save everything, no prompts
-cargo run -- grab https://example.com --mode render -o ./out
+cargo run -- grab https://displaay.net/typeface/perfektta --all -o ./out
 cargo run -- scan https://example.com --json   # discovery only
-cargo run -- doctor                            # check the WebDriver endpoint
 ```
 
 ### Discovery modes
 
-- `auto` — static HTML/CSS scan first; browser-backed downloads still available during `grab`
-- `static` — HTML/CSS discovery only (no browser)
-- `render` — force browser-rendered CSSOM discovery (needs WebDriver)
+- `auto` *(default)* — static HTML/CSS scan **plus** embedded-browser discovery, merged.
+  Catches dynamic / extensionless / catalog fonts (e.g. Displaay testers). Falls back
+  to the static result if Chrome isn't available.
+- `static` — HTML/CSS discovery only (no browser; fastest).
+- `render` — embedded-browser discovery only.
+
+### One discovery engine, everywhere
+
+The CLI, the local web app, and the Chrome extension all run the **same** discovery
+JavaScript ([`extension/discover.js`](extension/discover.js) + `capture.js`). The
+Rust apps drive it through an **embedded headless Chrome** (no separate WebDriver to
+install); the extension runs it in the page directly. So all three find the same
+fonts — including JS-injected and whole-family catalog fonts.
 
 ## Stack
 
 - **Rust** + **Tokio**, **clap** (CLI), **axum** (local web server, embedded UI)
-- **reqwest** + **scraper** for static discovery; **thirtyfour** + WebDriver for render mode
+- **reqwest** + **scraper** for static discovery; **headless_chrome** (CDP) for
+  embedded-browser discovery — runs the shared `discover.js`
 - **wuff** + **ttf-parser** for font decompression and inspection
 - **wasm32-unknown-unknown** (no `wasm-bindgen`) for the in-browser converter
 
 ## Requirements
 
 - Rust toolchain (`rustup`), plus the `wasm32-unknown-unknown` target for the extension
-- A WebDriver endpoint (default `http://localhost:4444`) only for `render` mode and
-  browser-context fallback downloads
+- **Chrome / Chromium installed** — used by `auto`/`render` discovery in the CLI and
+  web app (auto-detected; `static` mode needs no browser)
 
 More detail on the engine lives in [core/README.md](core/README.md).
 

@@ -154,10 +154,7 @@ pub fn merge_fonts(
                 if current.stretch.is_none() {
                     current.stretch = stretch;
                 }
-                if matches!(
-                    scan_source,
-                    ScanSource::BrowserCss | ScanSource::BrowserNetwork
-                ) {
+                if matches!(scan_source, ScanSource::BrowserCss) {
                     current.scan_source = scan_source;
                 }
                 current.id = format!(

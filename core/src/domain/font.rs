@@ -117,7 +117,6 @@ impl FontFormat {
 pub enum ScanSource {
     StaticCss,
     BrowserCss,
-    BrowserNetwork,
 }
 
 impl ScanSource {
@@ -125,7 +124,6 @@ impl ScanSource {
         match self {
             Self::StaticCss => "static css",
             Self::BrowserCss => "browser css",
-            Self::BrowserNetwork => "browser network",
         }
     }
 }
