@@ -117,6 +117,75 @@ function collectFontsInPage() {
     /* performance API unavailable */
   }
 
+  // 2b. Site catalog adapter — Displaay. The tester only fetches the styles you
+  //     interact with, so reading the page's own data is the only way to get the
+  //     COMPLETE family (master variable font + every named instance) up front.
+  try {
+    if (/(^|\.)displaay\.net$/i.test(location.hostname)) {
+      const loaderData =
+        (window.__reactRouterContext && window.__reactRouterContext.state && window.__reactRouterContext.state.loaderData) ||
+        (window.__reactRouterDataRouter && window.__reactRouterDataRouter.state && window.__reactRouterDataRouter.state.loaderData) ||
+        null;
+      const families = [];
+      const seenFamily = new Set();
+      (function walk(node, depth) {
+        if (!node || typeof node !== "object" || depth > 10) return;
+        if (Array.isArray(node)) {
+          for (const item of node) walk(item, depth + 1);
+          return;
+        }
+        if (node.name && node.glyphsFile && node.glyphsFile.activeRevision && node.glyphsFile.activeRevision.id) {
+          if (!seenFamily.has(node.id)) {
+            seenFamily.add(node.id);
+            families.push(node);
+          }
+        }
+        for (const key in node) {
+          try {
+            walk(node[key], depth + 1);
+          } catch {}
+        }
+      })(loaderData, 0);
+
+      for (const family of families) {
+        const vfId = family.glyphsFile.activeRevision.id;
+        // Master variable font — one file that contains the whole family.
+        out.set(`https://w.displaay.net/tester/file/${vfId}`, {
+          url: `https://w.displaay.net/tester/file/${vfId}`,
+          family: `${family.name} Variable`,
+          weight: "400",
+          style: "normal",
+          format: "",
+          variable: true,
+        });
+        // Every named instance, flattened to a static TTF.
+        const rev = family.glyphsFile.activeRevision;
+        const instances =
+          family.instances ||
+          (rev.families && rev.families[0] && rev.families[0].instances) ||
+          [];
+        for (const instance of instances) {
+          if (!instance || !instance.id) continue;
+          const axes = instance.axes || [];
+          const wght = (axes.find((a) => a.name === "wght") || {}).value;
+          const slnt = (axes.find((a) => a.name === "slnt") || {}).value;
+          const label = (instance.key || instance.name || "").trim();
+          const italic = (slnt && slnt !== 0) || /italic/i.test(label);
+          const url = `https://w.displaay.net/tester/file/instance/${instance.id}/ttf`;
+          out.set(url, {
+            url,
+            family: `${family.name} ${label}`.trim(),
+            weight: wght ? String(wght) : "400",
+            style: italic ? "italic" : "normal",
+            format: "",
+          });
+        }
+      }
+    }
+  } catch {
+    /* catalog shape changed — fall back to network capture */
+  }
+
   const list = Array.from(out.values());
 
   // 3. Fonts captured by capture.js (FontFace/fetch hooks) — dynamically injected

@@ -34,6 +34,11 @@ to convert.
   The popup re-fetches those URLs and converts them — variable axes preserved.
   (Because the content script runs at page load, **reload the tab after installing**
   for tester sites to be caught.)
+- **Complete families.** A tester only loads the styles you interact with, so the
+  network methods above see a partial set. For known foundries the popup reads the
+  page's own catalog and enumerates the **whole family up front** — every weight,
+  italic, and the master variable font. Displaay is supported (`collectFontsInPage`
+  reads its React Router loader data); this path needs no reload and no interaction.
 - **Preview** fetches each font (host permission bypasses CORS), wraps the bytes
   in a `blob:` URL, and renders the real glyphs with editable sample text. Loads
   lazily as you scroll.
