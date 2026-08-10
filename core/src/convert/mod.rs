@@ -3,7 +3,7 @@ mod name_repair;
 use std::fs;
 
 use anyhow::{anyhow, bail, Context, Result};
-use ttf_parser::Face;
+use ttf_parser::{name_id, Face};
 use wuff::{decompress_woff1, decompress_woff2};
 
 use crate::{
@@ -107,6 +107,7 @@ fn analyze_font(sfnt_data: Vec<u8>, cached: &CachedFont) -> Result<ConvertedFont
 
     let variable_axes_preserved = face.is_variable() || cached.info.variable;
     let mut info = cached.info.clone();
+    refresh_info_from_face(&mut info, &face);
     info.scripts
         .extend(detect_supported_scripts_from_face(&face));
     info.scripts.sort();
@@ -121,6 +122,36 @@ fn analyze_font(sfnt_data: Vec<u8>, cached: &CachedFont) -> Result<ConvertedFont
         source_url: cached.source_url.clone(),
         transfer_method: cached.transfer_method,
     })
+}
+
+fn refresh_info_from_face(info: &mut crate::domain::FontCandidate, face: &Face<'_>) {
+    if let Some(family) = preferred_face_name(face, &[name_id::TYPOGRAPHIC_FAMILY, name_id::FAMILY])
+    {
+        info.family = family;
+    }
+    info.weight = face.weight().to_number().to_string();
+    info.style = if face.is_oblique() {
+        "oblique".to_string()
+    } else if face.is_italic() {
+        "italic".to_string()
+    } else {
+        "normal".to_string()
+    };
+}
+
+fn preferred_face_name(face: &Face<'_>, name_ids: &[u16]) -> Option<String> {
+    for name_id in name_ids {
+        if let Some(value) = face
+            .names()
+            .into_iter()
+            .filter(|name| name.name_id == *name_id)
+            .filter_map(|name| name.to_string())
+            .find(|value| value.chars().any(|character| character.is_alphanumeric()))
+        {
+            return Some(value);
+        }
+    }
+    None
 }
 
 fn axis_name(tag: &[u8; 4]) -> String {

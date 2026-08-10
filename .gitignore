@@ -34,6 +34,7 @@ pnpm-debug.log*
 .vscode/*
 !.vscode/extensions.json
 .idea
+.serena/
 .DS_Store
 *.suo
 *.sw?

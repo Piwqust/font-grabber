@@ -4,7 +4,9 @@ const state = {
   fonts: [],
   selected: new Set(),
   origin: "",
+  tabId: null,
   cache: new Map(), // url -> { bytes: Uint8Array, blobUrl: string }
+  faces: new Set(), // preview @font-face rules already written (survives re-render)
 };
 
 const el = {
@@ -41,26 +43,49 @@ async function init() {
       showEmpty("Open a normal web page, then click the icon.", true);
       return;
     }
+    state.tabId = tab.id;
     try {
       state.origin = new URL(tab.url).host;
       el.origin.textContent = state.origin;
     } catch {}
 
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      world: "MAIN", // needed to read fonts captured by capture.js (also runs in MAIN)
-      func: collectFontsInPage,
-      args: [{ includeBytes: true }],
-    });
-    const found = (results && results[0] && results[0].result) || [];
+    // allFrames: tester widgets and font previews are frequently inside an iframe,
+    // and capture.js already runs in every frame.
+    const inject = (target) =>
+      chrome.scripting.executeScript({
+        target,
+        world: "MAIN", // needed to read fonts captured by capture.js (also runs in MAIN)
+        func: collectFontsInPage,
+        args: [{ includeBytes: true }],
+      });
+    let results;
+    try {
+      results = await inject({ tabId: tab.id, allFrames: true });
+    } catch {
+      // A frame that refuses injection must not cost us the main document.
+      results = await inject({ tabId: tab.id });
+    }
+    const found = [];
+    const seenUrls = new Set();
+    for (const frame of results || []) {
+      for (const font of (frame && frame.result) || []) {
+        font.frameId = frame.frameId;
+        // "captured:N" is per-frame, so qualify it before de-duplicating by URL.
+        if (font.url.startsWith("captured:")) {
+          font.url = `captured:${frame.frameId}:${font.url.slice("captured:".length)}`;
+        }
+        if (seenUrls.has(font.url)) continue;
+        seenUrls.add(font.url);
+        found.push(font);
+      }
+    }
 
     // Merge fonts the background recorded at the network layer (extensionless or
     // Web-Worker-loaded fonts that in-page inspection can't see).
     const networkUrls = await getNetworkFonts(tab.id);
-    const seen = new Set(found.map((f) => f.url));
     for (const url of networkUrls) {
-      if (seen.has(url)) continue;
-      seen.add(url);
+      if (seenUrls.has(url)) continue;
+      seenUrls.add(url);
       found.push({ url, family: "", weight: "400", style: "normal", format: "", fromNetwork: true });
     }
 
@@ -107,22 +132,74 @@ function slugFromUrl(url) {
 // the page slug for extensionless endpoints.
 function deriveDisplayNames(fonts, fallback) {
   for (const font of fonts) {
-    if (font.family && font.family.length > 1) continue;
-    let name = "";
+    const currentFamily = (font.family || "").trim();
+    const genericFamily = !currentFamily || /^font-style-\d+$/i.test(currentFamily);
+    if (!genericFamily) continue;
+    let metadata = null;
     try {
       const file = decodeURIComponent(new URL(font.url, location.href).pathname.split("/").pop() || "");
-      if (/\.(woff2|woff|ttf|otf)$/i.test(file)) {
-        name = file.replace(/\.(woff2|woff|ttf|otf)$/i, "").replace(/[_-]+/g, " ").trim();
-      }
+      metadata = metadataFromFontFilename(file);
     } catch {
       /* extensionless or non-URL (captured) */
     }
-    if (!name || name.length < 2) {
-      name = fallback || "Font";
-      if (/instance/i.test(font.url || "")) name += " Instance";
+    if (metadata) {
+      font.family = metadata.family;
+      font.weight = metadata.weight;
+      font.style = metadata.style;
+      continue;
     }
+    let name = fallback || "Font";
+    if (/instance/i.test(font.url || "")) name += " Instance";
     font.family = name;
   }
+}
+
+function metadataFromFontFilename(file) {
+  let stem = file
+    .replace(/\.(woff2?|ttf|otf)$/i, "")
+    .replace(/\.subset$/i, "")
+    .replace(/\.(ttf|otf)$/i, "")
+    .replace(/[-_](web|desktop)$/i, "");
+  const match = stem.match(/[-_](Thin|Hairline|ExtraLight|UltraLight|Light|Regular|Book|Medium|SemiBold|DemiBold|Bold|ExtraBold|UltraBold|Black|Heavy|Super)(Italic|Oblique)?$/i);
+  if (!match) {
+    const family = humanizeFontStem(stem);
+    return family.length > 1 ? { family, weight: "400", style: "normal" } : null;
+  }
+
+  const weights = {
+    thin: "100",
+    hairline: "100",
+    extralight: "200",
+    ultralight: "200",
+    light: "300",
+    regular: "400",
+    book: "400",
+    medium: "500",
+    semibold: "600",
+    demibold: "600",
+    bold: "700",
+    extrabold: "800",
+    ultrabold: "800",
+    black: "900",
+    heavy: "900",
+    super: "900",
+  };
+  const family = humanizeFontStem(stem.slice(0, match.index));
+  if (family.length < 2) return null;
+  return {
+    family,
+    weight: weights[match[1].toLowerCase()] || "400",
+    style: match[2] ? match[2].toLowerCase() : "normal",
+  };
+}
+
+function humanizeFontStem(value) {
+  return value
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(LC|Cyr|Cyrillic|Latin)$/i, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function showEmpty(message, isError) {
@@ -228,13 +305,18 @@ async function loadPreview(id) {
   try {
     const entry = await ensureBytes(font);
     const family = `fg-${cssId(id)}`;
-    el.faceStyle.appendChild(
-      document.createTextNode(`@font-face{font-family:"${family}";src:url("${entry.blobUrl}");}`)
-    );
+    // Filtering re-renders the cards; only write each rule once.
+    if (!state.faces.has(family)) {
+      state.faces.add(family);
+      el.faceStyle.appendChild(
+        document.createTextNode(`@font-face{font-family:"${family}";src:url("${entry.blobUrl}");}`)
+      );
+    }
     preview.style.fontFamily = `"${family}", system-ui, sans-serif`;
     preview.classList.remove("loading");
   } catch {
     preview.classList.remove("loading");
+    preview.dataset.failed = "1";
     preview.style.opacity = "0.4";
     preview.textContent = "(preview unavailable)";
   }
@@ -254,9 +336,18 @@ async function ensureBytes(font) {
     bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   } else {
-    const response = await fetch(font.url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    bytes = new Uint8Array(await response.arrayBuffer());
+    try {
+      const response = await fetch(font.url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      bytes = new Uint8Array(await response.arrayBuffer());
+    } catch (directError) {
+      // Some foundry CDNs reject extension-origin requests because they require
+      // the open page as Referer. Fetch in that page's MAIN world so the browser
+      // supplies the legitimate Referer and cookies, then return the bytes.
+      bytes = await fetchBytesInPage(font).catch((pageError) => {
+        throw new Error(`${directError.message}; page fetch: ${pageError.message}`);
+      });
+    }
   }
 
   const blobUrl = URL.createObjectURL(new Blob([bytes]));
@@ -265,18 +356,64 @@ async function ensureBytes(font) {
   return entry;
 }
 
-function formatCode(font) {
+async function fetchBytesInPage(font) {
+  if (!state.tabId) throw new Error("No source tab");
+  const frameId = Number.isInteger(font.frameId) ? font.frameId : 0;
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: state.tabId, frameIds: [frameId] },
+    world: "MAIN",
+    func: async (url) => {
+      // `same-origin` keeps page cookies for same-origin font endpoints and omits
+      // them for CDNs. The latter matters because many font CDNs answer with
+      // `Access-Control-Allow-Origin: *`, which browsers reject with credentials.
+      const response = await fetch(url, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      let binary = "";
+      const chunk = 0x8000;
+      for (let offset = 0; offset < bytes.length; offset += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
+      }
+      return btoa(binary);
+    },
+    args: [font.url],
+  });
+  const encoded = results && results[0] && results[0].result;
+  if (!encoded) throw new Error("Page returned no font data");
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+// The real bytes beat the page's own declaration: sites mislabel `format()` and
+// serve .woff2 URLs holding .woff (and vice versa), and a wrong code makes the
+// converter fail outright instead of just guessing.
+function magicFormat(bytes) {
+  if (!bytes || bytes.length < 4) return 0;
+  const sig = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+  if (sig === "wOF2") return 1;
+  if (sig === "wOFF") return 2;
+  if (sig === "OTTO" || sig === "true") return 3; // not "ttcf": a collection is not a single sfnt
+  if (bytes[0] === 0x00 && bytes[1] === 0x01 && bytes[2] === 0x00 && bytes[3] === 0x00) return 3;
+  return 0;
+}
+
+function formatCode(font, bytes) {
+  const sniffed = magicFormat(bytes);
+  if (sniffed) return sniffed;
   const fmt = (font.format || extFromUrl(font.url) || "").toLowerCase();
   if (fmt.includes("woff2")) return 1;
   if (fmt === "woff") return 2;
   if (fmt === "truetype" || fmt === "opentype" || fmt === "ttf" || fmt === "otf") return 3;
-  return 0; // auto-sniff in WASM
+  return 0; // let the WASM side try
 }
 
 async function convertSelected(onProgress) {
   const fonts = state.fonts.filter((f) => state.selected.has(f.id));
   const converted = [];
   const failures = [];
+  const usedNames = new Set();
   let done = 0;
 
   for (const font of fonts) {
@@ -284,13 +421,13 @@ async function convertSelected(onProgress) {
       const entry = await ensureBytes(font);
       const sfnt = await FontConverter.convert(
         entry.bytes,
-        formatCode(font),
+        formatCode(font, entry.bytes),
         font.family,
         font.weight,
         font.style
       );
       const ext = FontConverter.sfntExtension(sfnt);
-      converted.push({ name: outputName(font, ext), data: sfnt });
+      converted.push({ name: uniqueName(outputName(font, ext), usedNames), data: sfnt });
     } catch (error) {
       failures.push(`${font.family}: ${error.message}`);
     }
@@ -362,8 +499,7 @@ el.filter.addEventListener("input", debounce(render, 150));
 el.sample.addEventListener("input", () => {
   const sample = el.sample.value || "The quick brown fox";
   el.list.querySelectorAll(".preview").forEach((p) => {
-    if (!p.classList.contains("loading")) p.textContent = sample;
-    else p.textContent = sample;
+    if (!p.dataset.failed) p.textContent = sample; // keep the "(unavailable)" note
   });
 });
 el.size.addEventListener("input", () => {
@@ -409,10 +545,28 @@ function setStatus(message, kind) {
 // ---------------------------------------------------------------------------
 function outputName(font, ext) {
   const family = sanitize(font.family) || "Font";
-  const weight = (font.weight || "400").toLowerCase();
-  const style = (font.style || "normal").toLowerCase();
-  const styleSuffix = style === "normal" || style === "regular" ? "" : `-${style}`;
+  const weight = sanitize((font.weight || "400").toLowerCase()) || "400";
+  const style = sanitize((font.style || "normal").toLowerCase());
+  const styleSuffix = style === "normal" || style === "regular" || !style ? "" : `-${style}`;
   return `${family}-${weight}${styleSuffix}.${ext}`;
+}
+
+// Two faces can legitimately reduce to the same file name (same family/weight, or
+// several unnamed faces falling back to the page slug). A ZIP holding duplicate
+// entries fails to extract, so make every name distinct.
+function uniqueName(name, used) {
+  if (!used.has(name)) {
+    used.add(name);
+    return name;
+  }
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  let n = 2;
+  while (used.has(`${stem}-${n}${ext}`)) n += 1;
+  const unique = `${stem}-${n}${ext}`;
+  used.add(unique);
+  return unique;
 }
 
 function sanitize(value) {

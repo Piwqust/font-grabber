@@ -54,7 +54,7 @@ pub async fn scan(request: &ScanRequest, logger: Option<Logger>) -> Result<ScanR
     }
 
     if request.enrich_scripts {
-        warnings.extend(enrich_font_scripts(&mut fonts, logger.clone()).await);
+        warnings.extend(enrich_font_scripts(&mut fonts, &request.page_url, logger.clone()).await);
     } else {
         for font in &mut fonts {
             merge_scripts(&mut font.scripts, infer_scripts_from_name(&font.family));
@@ -78,7 +78,11 @@ pub async fn scan(request: &ScanRequest, logger: Option<Logger>) -> Result<ScanR
     })
 }
 
-async fn enrich_font_scripts(fonts: &mut [FontCandidate], logger: Option<Logger>) -> Vec<String> {
+async fn enrich_font_scripts(
+    fonts: &mut [FontCandidate],
+    page_url: &str,
+    logger: Option<Logger>,
+) -> Vec<String> {
     if fonts.is_empty() {
         return Vec::new();
     }
@@ -109,7 +113,7 @@ async fn enrich_font_scripts(fonts: &mut [FontCandidate], logger: Option<Logger>
             logger.as_ref(),
             format!("Inspecting script coverage for {}", font.family),
         );
-        match inspect_font_scripts(&client, source).await {
+        match inspect_font_scripts(&client, source, page_url).await {
             Ok(scripts) => {
                 cache.insert(source.url.clone(), scripts.clone());
                 merge_scripts(&mut font.scripts, scripts);
@@ -130,9 +134,11 @@ async fn enrich_font_scripts(fonts: &mut [FontCandidate], logger: Option<Logger>
 async fn inspect_font_scripts(
     client: &reqwest::Client,
     source: &FontSource,
+    page_url: &str,
 ) -> Result<Vec<FontScript>> {
     let response = client
         .get(&source.url)
+        .header(reqwest::header::REFERER, page_url)
         .send()
         .await
         .with_context(|| format!("Failed to fetch {}", source.url))?

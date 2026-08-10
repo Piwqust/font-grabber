@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Font Grabber",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Detect, preview, and download a website's fonts as clean TTF/OTF files.",
   "permissions": ["activeTab", "scripting", "downloads", "webRequest", "storage"],
   "host_permissions": ["<all_urls>"],

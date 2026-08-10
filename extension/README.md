@@ -22,10 +22,11 @@ to convert.
 
 ## How it works
 
-- **Discovery** runs in the page via `chrome.scripting`: it reads `@font-face`
-  rules from every accessible stylesheet and also lists every font file the page
-  actually loaded (`performance.getEntriesByType("resource")`), so cross-origin
-  CSS is still covered. No WebDriver, no scraping.
+- **Discovery** runs in the page via `chrome.scripting`, in **every frame**: it
+  reads `@font-face` rules from every accessible stylesheet and also lists every
+  font file the page actually loaded (`performance.getEntriesByType("resource")`),
+  so cross-origin CSS and iframed tester widgets are still covered. No WebDriver,
+  no scraping.
 - **Dynamic / variable fonts** from type-tester sites (e.g. Displaay, where the
   font is fetched from an extensionless endpoint inside a Web Worker and injected
   with `new FontFace(uuid, bytes)`) are caught two ways: a `document_start`
@@ -44,7 +45,9 @@ to convert.
   lazily as you scroll.
 - **Conversion** happens in `convert.wasm`: WOFF2 (Brotli) and WOFF (zlib) are
   decompressed to sfnt and the name table is repaired — byte-for-byte identical
-  to the CLI output.
+  to the CLI output. The input format is taken from the file's own magic bytes,
+  not from the page's `format()` hint, which sites get wrong often enough to
+  matter.
 - **Download** gives you a single **ZIP** or individual files saved into a
   `FontGrabber/` subfolder of your Downloads.
 

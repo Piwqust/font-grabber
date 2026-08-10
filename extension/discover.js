@@ -36,7 +36,7 @@ function collectFontsInPage(opts) {
   };
   const priority = (fmt) => ({ woff2: 1, woff: 2, truetype: 3, opentype: 4 }[fmt] || 9);
 
-  function addCandidate(rawUrl, base, family, weight, style, fmtHint) {
+  function addCandidate(rawUrl, base, family, weight, style, fmtHint, isVariable) {
     let url;
     try {
       url = new URL(rawUrl, base).href;
@@ -53,7 +53,14 @@ function collectFontsInPage(opts) {
       if (family && (!existing.family || existing.family.length < 2)) existing.family = family;
       return;
     }
-    out.set(url, { url, family: family || "", weight: weight || "400", style: style || "normal", format: fmt });
+    out.set(url, {
+      url,
+      family: family || "",
+      weight: weight || "400",
+      style: style || "normal",
+      format: fmt,
+      variable: !!isVariable,
+    });
   }
 
   // 1. @font-face rules from accessible stylesheets (rich metadata).
@@ -69,8 +76,11 @@ function collectFontsInPage(opts) {
     for (const rule of Array.from(rules)) {
       if (rule.constructor.name !== "CSSFontFaceRule" && rule.type !== 5) continue;
       const family = firstFamily(rule.style.getPropertyValue("font-family"));
-      const weight = normWeight(rule.style.getPropertyValue("font-weight"));
+      const rawWeight = rule.style.getPropertyValue("font-weight") || "";
+      const weight = normWeight(rawWeight);
       const style = normStyle(rule.style.getPropertyValue("font-style"));
+      // A weight *range* ("100 900") means the face is a variable font.
+      const isVariable = /\s/.test(rawWeight.trim());
       const src = rule.style.getPropertyValue("src");
       if (!src) continue;
 
@@ -85,7 +95,7 @@ function collectFontsInPage(opts) {
       }
       sources.sort((a, b) => priority(a.fmt || formatFromUrl(a.url)) - priority(b.fmt || formatFromUrl(b.url)));
       const best = sources[0];
-      if (best) addCandidate(best.url, base, family, weight, style, best.fmt);
+      if (best) addCandidate(best.url, base, family, weight, style, best.fmt, isVariable);
     }
   }
 
@@ -165,8 +175,6 @@ function collectFontsInPage(opts) {
     /* catalog shape changed — fall back to network capture */
   }
 
-  const list = Array.from(out.values());
-
   // 3. Fonts captured by capture.js (FontFace/fetch hooks) — dynamically injected
   //    fonts with no @font-face rule or font-extension URL.
   try {
@@ -188,25 +196,28 @@ function collectFontsInPage(opts) {
       if (!c.bytes || !c.bytes.length) return;
       if (!includeBytes && !c.url) return; // URL-only consumer can't use inline bytes
       const looksUuid = !c.family || /^font-[0-9a-f-]{8,}$/i.test(c.family) || c.family.length < 2;
-      const entry = {
-        url: c.url || `captured:${index}`,
-        family: looksUuid ? slug : c.family,
-        weight: c.weight && /^\d/.test(c.weight) ? c.weight.split(/\s+/)[0] : "400",
-        style: /italic|oblique/i.test(c.style) ? c.style.toLowerCase().split(/\s+/)[0] : "normal",
-        format: "",
-        variable: /\s/.test(c.weight || "") || /\s/.test(c.stretch || ""),
-      };
+      const url = c.url || `captured:${index}`;
+      // The same file often shows up twice — once via @font-face/performance and
+      // once through the capture hooks. Enrich the existing entry instead of
+      // adding a second card for the same URL.
+      const entry = out.get(url) || { url, family: "", weight: "400", style: "normal", format: "" };
+      if (!entry.family || entry.family.length < 2) entry.family = looksUuid ? slug : c.family;
+      if (entry.weight === "400" && c.weight && /^\d/.test(c.weight)) entry.weight = c.weight.split(/\s+/)[0];
+      if (entry.style === "normal" && /italic|oblique/i.test(c.style)) {
+        entry.style = c.style.toLowerCase().split(/\s+/)[0];
+      }
+      if (/\s/.test(c.weight || "") || /\s/.test(c.stretch || "")) entry.variable = true;
       if (includeBytes) {
         entry.b64 = toB64(c.bytes);
         entry.captured = true;
       }
-      list.push(entry);
+      out.set(url, entry);
     });
   } catch {
     /* no captured fonts */
   }
 
-  return list;
+  return Array.from(out.values());
 }
 
 // Expose for headless Chrome (core/src/discovery/headless.rs) which appends a call.

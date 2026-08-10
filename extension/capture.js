@@ -69,7 +69,10 @@
     window.fetch = function (...args) {
       const request = args[0];
       const url = typeof request === "string" ? request : request && request.url;
-      return nativeFetch.apply(this, args).then((res) => {
+      // `this` is undefined when fetch is called detached — e.g. `(0, fetch)(url)`,
+      // which bundlers emit. Native fetch throws "Illegal invocation" on that, so
+      // fall back to the global; never break the page's own requests.
+      return nativeFetch.apply(this || window, args).then((res) => {
         try {
           const ct = (res.headers && res.headers.get && res.headers.get("content-type")) || "";
           const looksFont = /font|woff|sfnt/i.test(ct) || /\.(woff2|woff|ttf|otf)(\?|#|$)/i.test(url || res.url || "");
