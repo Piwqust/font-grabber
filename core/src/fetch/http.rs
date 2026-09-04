@@ -8,18 +8,27 @@ use reqwest::{header::REFERER, Client};
 
 use crate::{
     domain::{CachedFont, FontCandidate, FontFormat, TransferMethod},
-    support::{next_available_path, sanitize_file_stem},
+    support::{next_available_path, sanitize_file_stem, validate_public_url},
 };
+
+const MAX_FONT_BYTES: usize = 64 * 1024 * 1024;
 
 pub async fn download_font(
     client: Client,
     font: FontCandidate,
     page_url: String,
     cache_dir: PathBuf,
+    restrict_private: bool,
 ) -> Result<CachedFont> {
     let mut last_error = None;
 
     for source in font.sources.clone() {
+        if restrict_private {
+            if let Err(error) = validate_public_url(&source.url).await {
+                last_error = Some(error);
+                continue;
+            }
+        }
         let response = client
             .get(&source.url)
             .header(REFERER, &page_url)
@@ -34,6 +43,10 @@ pub async fn download_font(
                         .context("Failed to read download body")?;
                     if bytes.len() < 100 {
                         last_error = Some(anyhow!("downloaded file too small ({})", bytes.len()));
+                        continue;
+                    }
+                    if bytes.len() > MAX_FONT_BYTES {
+                        last_error = Some(anyhow!("downloaded file exceeds the 64 MiB limit"));
                         continue;
                     }
 

@@ -1,4 +1,4 @@
-# Font Grabber — Chrome Extension
+# Fount — Chrome Extension
 
 A Manifest V3 Chrome extension that detects the fonts used on the current page,
 previews them live, and downloads them as clean **TTF/OTF** files. The
@@ -18,7 +18,7 @@ to convert.
 2. Open `chrome://extensions`.
 3. Turn on **Developer mode** (top-right).
 4. Click **Load unpacked** and select this `extension/` folder.
-5. Pin the puzzle-piece icon, open any website, and click the **Font Grabber** icon.
+5. Pin the puzzle-piece icon, open any website, and click the **Fount** icon.
 
 ## How it works
 
@@ -49,7 +49,7 @@ to convert.
   not from the page's `format()` hint, which sites get wrong often enough to
   matter.
 - **Download** gives you a single **ZIP** or individual files saved into a
-  `FontGrabber/` subfolder of your Downloads.
+  `Fount/` subfolder of your Downloads.
 
 ## Files
 

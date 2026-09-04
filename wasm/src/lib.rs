@@ -100,7 +100,7 @@ fn do_convert(font: &[u8], fmt: u32, meta: &[u8]) -> Result<Vec<u8>, String> {
     let sfnt = decompress(font, fmt)?;
 
     let meta_str = std::str::from_utf8(meta).unwrap_or("");
-    let mut parts = meta_str.splitn(3, '\t');
+    let mut parts = meta_str.split('\t');
     let family = parts.next().unwrap_or("").trim();
     let weight = {
         let value = parts.next().unwrap_or("").trim();
@@ -118,6 +118,34 @@ fn do_convert(font: &[u8], fmt: u32, meta: &[u8]) -> Result<Vec<u8>, String> {
             value
         }
     };
+    let mode = parts.next().unwrap_or("").trim();
+
+    if mode == "draft" {
+        let subfamily = parts.next().unwrap_or("").trim();
+        let full_name = parts.next().unwrap_or("").trim();
+        let postscript = parts.next().unwrap_or("").trim();
+        if family.is_empty() {
+            return Ok(sfnt);
+        }
+        return name_repair::apply_name_draft(
+            &sfnt,
+            &name_repair::NameDraft {
+                family,
+                subfamily,
+                full_name: if full_name.is_empty() {
+                    None
+                } else {
+                    Some(full_name)
+                },
+                postscript: if postscript.is_empty() {
+                    None
+                } else {
+                    Some(postscript)
+                },
+            },
+        )
+        .map_err(|error| error.to_string());
+    }
 
     // Only attempt name repair when we actually have a usable family name.
     if family.is_empty() {

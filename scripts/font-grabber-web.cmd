@@ -8,7 +8,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Starting Font Grabber web app...
+echo Starting Fount web app...
 echo The browser will open automatically. Press Ctrl+C in this window to stop.
 echo (First launch compiles in release mode and may take a minute.)
 echo.

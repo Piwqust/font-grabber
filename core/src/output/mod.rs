@@ -46,6 +46,19 @@ pub fn save_converted_fonts(
 }
 
 pub(crate) fn build_output_filename(font: &ConvertedFont) -> String {
+    if let Some(stem) = font
+        .output_stem
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return format!(
+            "{}.{}",
+            sanitize_file_stem(stem),
+            font.output_format.extension()
+        );
+    }
+
     let family = sanitize_file_stem(&font.info.family);
     let weight = sanitize_file_stem(&font.info.weight).to_ascii_lowercase();
     let style = sanitize_file_stem(&font.info.style).to_ascii_lowercase();
@@ -129,7 +142,15 @@ mod tests {
             axes: vec![],
             source_url: "https://example.com/font.woff2".into(),
             transfer_method: TransferMethod::Http,
+            output_stem: None,
         }
+    }
+
+    #[test]
+    fn filename_uses_output_stem_when_set() {
+        let mut font = converted_font();
+        font.output_stem = Some("GT-Eesti-Bold".into());
+        assert_eq!(build_output_filename(&font), "GT-Eesti-Bold.ttf");
     }
 
     #[test]

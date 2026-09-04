@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -234,6 +234,24 @@ impl OutputFormat {
     }
 }
 
+/// User-authored OpenType name records, applied at convert time.
+///
+/// Unlike automatic repair, a draft always overwrites name IDs 1/2/4/6/16/17
+/// so a foundry CSS alias such as `Ee-Te-Bold` can become `GT Eesti Bold`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NameDraft {
+    pub family: String,
+    #[serde(default)]
+    pub subfamily: String,
+    #[serde(default)]
+    pub full_name: Option<String>,
+    #[serde(default)]
+    pub postscript: Option<String>,
+    /// Output file stem without extension. When omitted, derived from family + subfamily.
+    #[serde(default)]
+    pub filename: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ConvertedFont {
     pub info: FontCandidate,
@@ -243,6 +261,7 @@ pub struct ConvertedFont {
     pub axes: Vec<VariableAxis>,
     pub source_url: String,
     pub transfer_method: TransferMethod,
+    pub output_stem: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

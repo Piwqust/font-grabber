@@ -1,4 +1,4 @@
-# Font Grabber
+# Fount
 
 Rust rewrite focused on a cleaner CLI, a simpler architecture, and more reliable browser fallbacks.
 

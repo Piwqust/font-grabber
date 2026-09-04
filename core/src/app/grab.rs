@@ -1,10 +1,12 @@
+use std::collections::HashMap;
+
 use anyhow::{bail, Result};
 use tempfile::tempdir;
 
 use crate::{
     cli::GrabArgs,
     convert, discovery,
-    domain::{DiscoveryMode, GrabReport, GrabRequest, ScanRequest},
+    domain::{DiscoveryMode, FontCandidate, GrabReport, GrabRequest, NameDraft, ScanRequest},
     fetch, output,
     support::{default_output_dir, normalize_url, ui},
 };
@@ -22,6 +24,8 @@ pub async fn run(args: GrabArgs) -> Result<()> {
     };
 
     let page_url = normalize_url(&raw_url)?;
+    let family_override = args.family.clone();
+    let subfamily_override = args.subfamily.clone();
     let request = GrabRequest {
         scan: ScanRequest {
             page_url: page_url.clone(),
@@ -82,11 +86,12 @@ pub async fn run(args: GrabArgs) -> Result<()> {
         cache_dir.path(),
         request.concurrency,
         allow_browser_fallback,
-        &request.scan.webdriver_url,
+        false,
         logger.clone(),
     )
     .await?;
-    let conversion = convert::convert_fonts(&downloads.cached, logger.clone())?;
+    let drafts = cli_name_drafts(family_override, subfamily_override, &selected);
+    let conversion = convert::convert_fonts(&downloads.cached, drafts.as_ref(), logger.clone())?;
     let saved = output::save_converted_fonts(&conversion.converted, &request.output_dir, logger)?;
 
     let report = GrabReport {
@@ -114,4 +119,38 @@ pub async fn run(args: GrabArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn cli_name_drafts(
+    family_override: Option<String>,
+    subfamily_override: Option<String>,
+    selected: &[FontCandidate],
+) -> Option<HashMap<String, NameDraft>> {
+    if family_override.is_none() && subfamily_override.is_none() {
+        return None;
+    }
+
+    Some(
+        selected
+            .iter()
+            .map(|font| {
+                let family = family_override
+                    .clone()
+                    .unwrap_or_else(|| font.family.clone());
+                let subfamily = subfamily_override.clone().unwrap_or_else(|| {
+                    convert::subfamily_from_weight_style(&font.weight, &font.style)
+                });
+                (
+                    font.id.clone(),
+                    NameDraft {
+                        family,
+                        subfamily,
+                        full_name: None,
+                        postscript: None,
+                        filename: None,
+                    },
+                )
+            })
+            .collect(),
+    )
 }

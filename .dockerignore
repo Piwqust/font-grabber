@@ -1,0 +1,13 @@
+# Used when building deploy/Dockerfile (compose context is the repo root).
+node_modules
+**/target
+fonts
+test-fonts
+test-fonts2
+archive
+dist
+docs
+.git
+.grok
+*.exe
+core/fonts

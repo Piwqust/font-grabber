@@ -60,7 +60,7 @@ pub fn repair_name_table_if_needed(
     let ps_name = preferred_existing_name(&existing, &[6])
         .unwrap_or_else(|| compose_post_script_name(&family, &subfamily));
     let unique_id = preferred_existing_name(&existing, &[3])
-        .unwrap_or_else(|| format!("1.000;FontGrabber;{ps_name}"));
+        .unwrap_or_else(|| format!("1.000;Fount;{ps_name}"));
     let version =
         preferred_existing_name(&existing, &[5]).unwrap_or_else(|| "Version 1.000".to_string());
     let replacements = BTreeMap::from([
@@ -70,6 +70,85 @@ pub fn repair_name_table_if_needed(
         (4, full_name),
         (5, version),
         (6, ps_name),
+    ]);
+    let new_name_table = patch_name_table(name_table, &replacements)?;
+    rebuild_sfnt_with_name_table(sfnt_data, &tables, &new_name_table)
+}
+
+pub struct NameDraft<'a> {
+    pub family: &'a str,
+    pub subfamily: &'a str,
+    pub full_name: Option<&'a str>,
+    pub postscript: Option<&'a str>,
+}
+
+pub fn apply_name_draft(sfnt_data: &[u8], draft: &NameDraft<'_>) -> Result<Vec<u8>> {
+    let tables = parse_tables(sfnt_data)?;
+    let Some(name_entry) = tables.iter().find(|entry| &entry.tag == b"name") else {
+        return Ok(sfnt_data.to_vec());
+    };
+    let name_table = slice_range(sfnt_data, name_entry.offset, name_entry.length)?;
+    if name_table.len() < 6 {
+        return Ok(sfnt_data.to_vec());
+    }
+
+    let existing = read_name_values(name_table)?;
+    let family = {
+        let value = draft
+            .family
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if value.is_empty() {
+            "Font".to_string()
+        } else {
+            value
+        }
+    };
+    let subfamily = {
+        let value = draft
+            .subfamily
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if value.is_empty() {
+            "Regular".to_string()
+        } else {
+            value
+        }
+    };
+    let full_name = draft
+        .full_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| compose_full_name(&family, &subfamily));
+    let ps_name = draft
+        .postscript
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let mut value = post_script_component(value);
+            value.truncate(63);
+            if value.is_empty() {
+                compose_post_script_name(&family, &subfamily)
+            } else {
+                value
+            }
+        })
+        .unwrap_or_else(|| compose_post_script_name(&family, &subfamily));
+    let unique_id = format!("1.000;Fount;{ps_name}");
+    let version =
+        preferred_existing_name(&existing, &[5]).unwrap_or_else(|| "Version 1.000".to_string());
+    let replacements = BTreeMap::from([
+        (1, family.clone()),
+        (2, subfamily.clone()),
+        (3, unique_id),
+        (4, full_name),
+        (5, version),
+        (6, ps_name),
+        (16, family),
+        (17, subfamily),
     ]);
     let new_name_table = patch_name_table(name_table, &replacements)?;
     rebuild_sfnt_with_name_table(sfnt_data, &tables, &new_name_table)
@@ -273,6 +352,27 @@ fn patch_name_table(name_table: &[u8], replacements: &BTreeMap<u16, String>) -> 
         }
     }
 
+    for name_id in [16u16, 17] {
+        if !replacements.contains_key(&name_id) {
+            continue;
+        }
+        let has_windows_record = entries.iter().any(|(record, _)| {
+            record.platform_id == 3 && record.encoding_id == 1 && record.name_id == name_id
+        });
+        if !has_windows_record {
+            let value = replacements[&name_id].clone();
+            entries.push((
+                NameRecord {
+                    platform_id: 3,
+                    encoding_id: 1,
+                    language_id: 0x0409,
+                    name_id,
+                },
+                encode_name_str(&value, 3),
+            ));
+        }
+    }
+
     entries.sort_by_key(|(record, _)| {
         (
             record.platform_id,
@@ -447,7 +547,7 @@ fn clean_family_name(value: &str) -> String {
 }
 
 fn is_valid_font_name(name: &str) -> bool {
-    name.chars().any(|ch| ch.is_ascii_alphanumeric())
+    name.chars().any(|ch| ch.is_alphanumeric())
 }
 
 fn decode_name_str(bytes: &[u8], platform_id: u16) -> String {
@@ -582,7 +682,7 @@ mod tests {
         let replacements = BTreeMap::from([
             (1, "Graphik Web".to_string()),
             (2, "Regular".to_string()),
-            (3, "1.000;FontGrabber;GraphikWeb-Regular".to_string()),
+            (3, "1.000;Fount;GraphikWeb-Regular".to_string()),
             (4, "Graphik Web".to_string()),
             (5, "Version 1.000".to_string()),
             (6, "GraphikWeb-Regular".to_string()),

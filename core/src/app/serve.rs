@@ -19,9 +19,10 @@ use tokio::sync::Mutex;
 
 use crate::{
     cli::ServeArgs,
-    convert, discovery, fetch, output,
-    domain::{DiscoveryMode, FontCandidate, ScanReport, ScanRequest},
-    support::{default_output_dir, normalize_url, http::build_http_client},
+    convert, discovery,
+    domain::{DiscoveryMode, FontCandidate, NameDraft, ScanReport, ScanRequest},
+    fetch, output,
+    support::{default_output_dir, http::build_http_client, normalize_url, validate_public_url},
 };
 
 /// Shared server state. Scan results are cached per (mode, url) so a follow-up grab
@@ -30,6 +31,7 @@ use crate::{
 struct AppState {
     webdriver_url: String,
     concurrency: usize,
+    hosted: bool,
     scans: Arc<Mutex<HashMap<String, ScanReport>>>,
 }
 
@@ -37,6 +39,7 @@ pub async fn run(args: ServeArgs) -> Result<()> {
     let state = AppState {
         webdriver_url: args.webdriver_url.clone(),
         concurrency: args.concurrency,
+        hosted: args.hosted,
         scans: Arc::new(Mutex::new(HashMap::new())),
     };
 
@@ -55,7 +58,11 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         .with_context(|| format!("Failed to bind {addr}"))?;
 
     let url = format!("http://{}:{}", display_host(&args.host), args.port);
-    println!("Font Grabber is running at {url}");
+    if args.hosted {
+        println!("Fount (hosted) is running at {url}");
+    } else {
+        println!("Fount is running at {url}");
+    }
     println!("Press Ctrl+C to stop.");
 
     if !args.no_open {
@@ -80,8 +87,11 @@ fn display_host(host: &str) -> String {
 // Static assets (embedded so the binary is self-contained)
 // ---------------------------------------------------------------------------
 
-async fn index() -> Html<&'static str> {
-    Html(include_str!("../web/index.html"))
+async fn index(State(state): State<AppState>) -> Html<String> {
+    Html(include_str!("../web/index.html").replace(
+        "__FOUNT_HOSTED__",
+        if state.hosted { "true" } else { "false" },
+    ))
 }
 
 async fn style() -> impl IntoResponse {
@@ -93,7 +103,10 @@ async fn style() -> impl IntoResponse {
 
 async fn script() -> impl IntoResponse {
     (
-        [(header::CONTENT_TYPE, "application/javascript; charset=utf-8")],
+        [(
+            header::CONTENT_TYPE,
+            "application/javascript; charset=utf-8",
+        )],
         include_str!("../web/app.js"),
     )
 }
@@ -115,6 +128,11 @@ async fn scan(State(state): State<AppState>, Json(body): Json<ScanBody>) -> Resp
         Ok(url) => url,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, &error.to_string()),
     };
+    if state.hosted {
+        if let Err(error) = validate_public_url(&page_url).await {
+            return error_response(StatusCode::BAD_REQUEST, &error.to_string());
+        }
+    }
 
     let request = ScanRequest {
         page_url,
@@ -149,6 +167,22 @@ struct GrabBody {
     delivery: Option<String>,
     #[serde(default)]
     output_dir: Option<String>,
+    #[serde(default)]
+    names: Vec<NameOverride>,
+}
+
+#[derive(Deserialize)]
+struct NameOverride {
+    id: String,
+    family: String,
+    #[serde(default)]
+    subfamily: String,
+    #[serde(default)]
+    full_name: Option<String>,
+    #[serde(default)]
+    postscript: Option<String>,
+    #[serde(default)]
+    filename: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -174,14 +208,32 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
         Ok(url) => url,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, &error.to_string()),
     };
+    if state.hosted {
+        if let Err(error) = validate_public_url(&page_url).await {
+            return error_response(StatusCode::BAD_REQUEST, &error.to_string());
+        }
+    }
 
     if body.ids.is_empty() {
         return error_response(StatusCode::BAD_REQUEST, "No fonts were selected");
     }
 
+    let delivery = body.delivery.as_deref().unwrap_or("zip");
+    if state.hosted && delivery == "folder" {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Folder delivery is disabled in hosted mode; choose ZIP",
+        );
+    }
+
     // Reuse the cached scan when available, otherwise scan again.
     let report = {
-        let cached = state.scans.lock().await.get(&cache_key(mode, &page_url)).cloned();
+        let cached = state
+            .scans
+            .lock()
+            .await
+            .get(&cache_key(mode, &page_url))
+            .cloned();
         match cached {
             Some(report) => report,
             None => {
@@ -218,9 +270,7 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
 
     let cache_dir = match tempdir() {
         Ok(dir) => dir,
-        Err(error) => {
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string())
-        }
+        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     };
     let allow_browser_fallback = !matches!(mode, DiscoveryMode::Static);
     let downloads = match fetch::download_fonts(
@@ -229,7 +279,7 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
         cache_dir.path(),
         state.concurrency,
         allow_browser_fallback,
-        &state.webdriver_url,
+        state.hosted,
         None,
     )
     .await
@@ -238,7 +288,8 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
         Err(error) => return error_response(StatusCode::BAD_GATEWAY, &format!("{error:#}")),
     };
 
-    let conversion = match convert::convert_fonts(&downloads.cached, None) {
+    let drafts = name_drafts_from_overrides(&body.names);
+    let conversion = match convert::convert_fonts(&downloads.cached, drafts.as_ref(), None) {
         Ok(batch) => batch,
         Err(error) => {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("{error:#}"))
@@ -254,7 +305,7 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
         return error_response(StatusCode::UNPROCESSABLE_ENTITY, &detail);
     }
 
-    if body.delivery.as_deref() == Some("folder") {
+    if delivery == "folder" {
         let output_dir = body
             .output_dir
             .as_deref()
@@ -316,17 +367,26 @@ struct FontQuery {
 
 /// Proxy a remote font file so the browser can load it same-origin for previews
 /// (cross-origin `@font-face` is blocked by CORS on many font hosts).
-async fn font_proxy(Query(query): Query<FontQuery>) -> Response {
+async fn font_proxy(State(state): State<AppState>, Query(query): Query<FontQuery>) -> Response {
     let parsed = match url::Url::parse(&query.url) {
         Ok(url) if matches!(url.scheme(), "http" | "https") => url,
         _ => return error_response(StatusCode::BAD_REQUEST, "Invalid font URL"),
     };
+    if state.hosted {
+        if let Err(error) = validate_public_url(parsed.as_str()).await {
+            return error_response(StatusCode::BAD_REQUEST, &error.to_string());
+        }
+        if !font_url_from_scan(&state, parsed.as_str()).await {
+            return error_response(
+                StatusCode::FORBIDDEN,
+                "Font URL was not part of a scanned page",
+            );
+        }
+    }
 
     let client = match build_http_client() {
         Ok(client) => client,
-        Err(error) => {
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string())
-        }
+        Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     };
 
     let response = match client.get(parsed.clone()).send().await {
@@ -427,7 +487,13 @@ fn zip_filename(page_url: &str) -> String {
     let domain = crate::support::extract_domain(page_url);
     let stem: String = domain
         .chars()
-        .map(|character| if character.is_alphanumeric() { character } else { '-' })
+        .map(|character| {
+            if character.is_alphanumeric() {
+                character
+            } else {
+                '-'
+            }
+        })
         .collect();
     let stem = stem.trim_matches('-');
     if stem.is_empty() {
@@ -437,8 +503,48 @@ fn zip_filename(page_url: &str) -> String {
     }
 }
 
+fn name_drafts_from_overrides(overrides: &[NameOverride]) -> Option<HashMap<String, NameDraft>> {
+    if overrides.is_empty() {
+        return None;
+    }
+    Some(
+        overrides
+            .iter()
+            .filter(|item| !item.id.is_empty() && !item.family.trim().is_empty())
+            .map(|item| {
+                (
+                    item.id.clone(),
+                    NameDraft {
+                        family: item.family.clone(),
+                        subfamily: item.subfamily.clone(),
+                        full_name: item.full_name.clone(),
+                        postscript: item.postscript.clone(),
+                        filename: item.filename.clone(),
+                    },
+                )
+            })
+            .collect(),
+    )
+}
+
+async fn font_url_from_scan(state: &AppState, url: &str) -> bool {
+    let scans = state.scans.lock().await;
+    scans.values().any(|report| {
+        report
+            .fonts
+            .iter()
+            .any(|font| font.sources.iter().any(|source| source.url == url))
+    })
+}
+
 fn error_response(status: StatusCode, message: &str) -> Response {
-    (status, Json(ErrorBody { error: message.to_string() })).into_response()
+    (
+        status,
+        Json(ErrorBody {
+            error: message.to_string(),
+        }),
+    )
+        .into_response()
 }
 
 #[derive(Serialize)]

@@ -5,16 +5,14 @@
 //! injected, extensionless, and site-catalog fonts (e.g. Displaay testers).
 
 use anyhow::{anyhow, Context, Result};
-use headless_chrome::{
-    protocol::cdp::Page::AddScriptToEvaluateOnNewDocument, Browser, LaunchOptions,
-};
+use headless_chrome::protocol::cdp::Page::AddScriptToEvaluateOnNewDocument;
 use serde::Deserialize;
 use std::time::Duration;
 
 use crate::{
     discovery::{parser, CollectorResult},
     domain::{FontCandidate, FontFormat, FontSource, ScanSource},
-    support::{emit_log, Logger},
+    support::{chrome, emit_log, Logger},
 };
 
 // Shared with the extension — single source of truth for discovery logic.
@@ -107,16 +105,14 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
 }
 
 fn run_browser(page_url: &str, logger: Option<Logger>) -> Result<Vec<RawCandidate>> {
-    let browser = Browser::new(
-        LaunchOptions::default_builder()
-            .headless(true)
-            .sandbox(false)
-            .idle_browser_timeout(Duration::from_secs(60))
-            .build()
-            .map_err(|error| anyhow!("Could not build launch options: {error}"))?,
-    )
-    .context("Could not launch headless Chrome (is Chrome/Chromium installed?)")?;
+    chrome::with_browser(|browser| collect_from_browser(browser, page_url, logger.clone()))
+}
 
+fn collect_from_browser(
+    browser: &headless_chrome::Browser,
+    page_url: &str,
+    logger: Option<Logger>,
+) -> Result<Vec<RawCandidate>> {
     let tab = browser.new_tab().context("Could not open a browser tab")?;
 
     // Install the FontFace/fetch capture hooks before any page script runs.
@@ -138,7 +134,8 @@ fn run_browser(page_url: &str, logger: Option<Logger>) -> Result<Vec<RawCandidat
     std::thread::sleep(Duration::from_millis(2500));
 
     emit_log(logger.as_ref(), "Collecting fonts from the rendered page");
-    let script = format!("{DISCOVER_JS}\n;JSON.stringify(collectFontsInPage({{includeBytes:false}}))");
+    let script =
+        format!("{DISCOVER_JS}\n;JSON.stringify(collectFontsInPage({{includeBytes:false}}))");
     let result = tab
         .evaluate(&script, false)
         .context("Font discovery script failed")?;

@@ -1,0 +1,13 @@
+# Compose build context is the repository root (`context: ..`).
+# Keep the send-context small: the image only needs core/ + two extension scripts.
+** /node_modules
+**/target
+fonts
+test-fonts
+test-fonts2
+archive
+dist
+docs
+.git
+.grok
+*.exe

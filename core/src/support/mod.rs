@@ -1,4 +1,6 @@
+pub mod chrome;
 pub mod http;
+pub mod ssrf;
 pub mod ui;
 pub mod webdriver;
 
@@ -9,6 +11,8 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use url::Url;
+
+pub use ssrf::validate_public_url;
 
 pub type Logger = Arc<dyn Fn(String) + Send + Sync + 'static>;
 

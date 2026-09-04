@@ -38,10 +38,13 @@ const FontConverter = (() => {
   }
 
   // format: 0 auto, 1 woff2, 2 woff, 3 sfnt passthrough
-  async function convert(bytes, format, family, weight, style) {
+  // draft, when present: { family, subfamily, full_name, postscript }
+  async function convert(bytes, format, family, weight, style, draft) {
     const ex = (await ready()).exports;
     const meta = new TextEncoder().encode(
-      `${family || ""}\t${weight || "400"}\t${style || "normal"}`
+      draft && draft.family
+        ? `${draft.family}\t${weight || "400"}\t${style || "normal"}\tdraft\t${draft.subfamily || ""}\t${draft.full_name || ""}\t${draft.postscript || ""}`
+        : `${family || ""}\t${weight || "400"}\t${style || "normal"}`
     );
 
     const fontPtr = writeBytes(ex, bytes);

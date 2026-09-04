@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Result};
 
-use crate::domain::FontCandidate;
+use crate::domain::{FontCandidate, NameDraft};
 
 const CHECKSUM_MAGIC: u32 = 0xB1B0_AFBA;
 const REQUIRED_WINDOWS_NAME_IDS: [u16; 6] = [1, 2, 3, 4, 5, 6];
@@ -54,7 +54,7 @@ pub fn repair_name_table_if_needed(sfnt_data: &[u8], info: &FontCandidate) -> Re
     let ps_name = preferred_existing_name(&existing, &[6])
         .unwrap_or_else(|| compose_post_script_name(&family, &subfamily));
     let unique_id = preferred_existing_name(&existing, &[3])
-        .unwrap_or_else(|| format!("1.000;FontGrabber;{ps_name}"));
+        .unwrap_or_else(|| format!("1.000;Fount;{ps_name}"));
     let version =
         preferred_existing_name(&existing, &[5]).unwrap_or_else(|| "Version 1.000".to_string());
     let replacements = BTreeMap::from([
@@ -67,6 +67,91 @@ pub fn repair_name_table_if_needed(sfnt_data: &[u8], info: &FontCandidate) -> Re
     ]);
     let new_name_table = patch_name_table(name_table, &replacements)?;
     rebuild_sfnt_with_name_table(sfnt_data, &tables, &new_name_table)
+}
+
+/// Always write the draft into the name table, including typographic family
+/// (ID 16) and subfamily (ID 17) so macOS groups the faces as one family.
+pub fn apply_name_draft(sfnt_data: &[u8], draft: &NameDraft) -> Result<Vec<u8>> {
+    let tables = parse_tables(sfnt_data)?;
+    let Some(name_entry) = tables.iter().find(|entry| &entry.tag == b"name") else {
+        return Ok(sfnt_data.to_vec());
+    };
+    let name_table = slice_range(sfnt_data, name_entry.offset, name_entry.length)?;
+    if name_table.len() < 6 {
+        return Ok(sfnt_data.to_vec());
+    }
+
+    let existing = read_name_values(name_table)?;
+    let family = {
+        let value = normalize_user_name(&draft.family);
+        if value.is_empty() {
+            "Font".to_string()
+        } else {
+            value
+        }
+    };
+    let subfamily = {
+        let value = normalize_user_name(&draft.subfamily);
+        if value.is_empty() {
+            "Regular".to_string()
+        } else {
+            value
+        }
+    };
+    let full_name = draft
+        .full_name
+        .as_deref()
+        .map(normalize_user_name)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| compose_full_name(&family, &subfamily));
+    let ps_name = draft
+        .postscript
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let mut value = post_script_component(value);
+            value.truncate(63);
+            if value.is_empty() {
+                compose_post_script_name(&family, &subfamily)
+            } else {
+                value
+            }
+        })
+        .unwrap_or_else(|| compose_post_script_name(&family, &subfamily));
+    let unique_id = format!("1.000;Fount;{ps_name}");
+    let version =
+        preferred_existing_name(&existing, &[5]).unwrap_or_else(|| "Version 1.000".to_string());
+    let replacements = BTreeMap::from([
+        (1, family.clone()),
+        (2, subfamily.clone()),
+        (3, unique_id),
+        (4, full_name),
+        (5, version),
+        (6, ps_name),
+        (16, family),
+        (17, subfamily),
+    ]);
+    let new_name_table = patch_name_table(name_table, &replacements)?;
+    rebuild_sfnt_with_name_table(sfnt_data, &tables, &new_name_table)
+}
+
+pub fn subfamily_from_weight_style(weight: &str, style: &str) -> String {
+    let is_italic = matches!(style.to_ascii_lowercase().as_str(), "italic" | "oblique");
+    let is_bold = weight == "700";
+    if is_bold && is_italic {
+        "Bold Italic".to_string()
+    } else if is_bold {
+        "Bold".to_string()
+    } else if is_italic {
+        "Italic".to_string()
+    } else {
+        "Regular".to_string()
+    }
+}
+
+fn normalize_user_name(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn read_name_values(name_table: &[u8]) -> Result<BTreeMap<u16, String>> {
@@ -269,6 +354,27 @@ fn patch_name_table(name_table: &[u8], replacements: &BTreeMap<u16, String>) -> 
         }
     }
 
+    for name_id in [16u16, 17] {
+        if !replacements.contains_key(&name_id) {
+            continue;
+        }
+        let has_windows_record = entries.iter().any(|(record, _)| {
+            record.platform_id == 3 && record.encoding_id == 1 && record.name_id == name_id
+        });
+        if !has_windows_record {
+            let value = replacements[&name_id].clone();
+            entries.push((
+                NameRecord {
+                    platform_id: 3,
+                    encoding_id: 1,
+                    language_id: 0x0409,
+                    name_id,
+                },
+                encode_name_str(&value, 3),
+            ));
+        }
+    }
+
     entries.sort_by_key(|(record, _)| {
         (
             record.platform_id,
@@ -446,7 +552,7 @@ fn clean_family_name(value: &str) -> String {
 }
 
 fn is_valid_font_name(name: &str) -> bool {
-    name.chars().any(|ch| ch.is_ascii_alphanumeric())
+    name.chars().any(|ch| ch.is_alphanumeric())
 }
 
 fn decode_name_str(bytes: &[u8], platform_id: u16) -> String {
@@ -604,7 +710,7 @@ mod tests {
         let replacements = BTreeMap::from([
             (1, "Graphik Web".to_string()),
             (2, "Regular".to_string()),
-            (3, "1.000;FontGrabber;GraphikWeb-Regular".to_string()),
+            (3, "1.000;Fount;GraphikWeb-Regular".to_string()),
             (4, "Graphik Web".to_string()),
             (5, "Version 1.000".to_string()),
             (6, "GraphikWeb-Regular".to_string()),
@@ -615,10 +721,7 @@ mod tests {
         assert_eq!(read_u16(&patched, 2).unwrap(), 6);
         assert_eq!(names.get(&1).unwrap(), "Graphik Web");
         assert_eq!(names.get(&2).unwrap(), "Regular");
-        assert_eq!(
-            names.get(&3).unwrap(),
-            "1.000;FontGrabber;GraphikWeb-Regular"
-        );
+        assert_eq!(names.get(&3).unwrap(), "1.000;Fount;GraphikWeb-Regular");
         assert_eq!(names.get(&4).unwrap(), "Graphik Web");
         assert_eq!(names.get(&5).unwrap(), "Version 1.000");
         assert_eq!(names.get(&6).unwrap(), "GraphikWeb-Regular");
@@ -651,5 +754,58 @@ mod tests {
 
         assert_eq!(recorded, compute_checksum(&head_data));
         assert_eq!(compute_checksum(&rebuilt), CHECKSUM_MAGIC);
+    }
+
+    #[test]
+    fn apply_name_draft_overwrites_existing_windows_names() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "fonts/gt-america.com/GT_America_Intl_Mono/GT-America-Intl-Mono-400-Variable.ttf",
+        );
+        let font = std::fs::read(path).unwrap();
+        let draft = NameDraft {
+            family: "Renamed Sans".into(),
+            subfamily: "Bold".into(),
+            full_name: None,
+            postscript: None,
+            filename: None,
+        };
+        let rewritten = apply_name_draft(&font, &draft).unwrap();
+        let tables = parse_tables(&rewritten).unwrap();
+        let name = tables.iter().find(|table| &table.tag == b"name").unwrap();
+        let name_data = slice_range(&rewritten, name.offset, name.length).unwrap();
+        let names = read_name_values(name_data).unwrap();
+
+        assert_eq!(names.get(&1).unwrap(), "Renamed Sans");
+        assert_eq!(names.get(&2).unwrap(), "Bold");
+        assert_eq!(names.get(&4).unwrap(), "Renamed Sans Bold");
+        assert_eq!(names.get(&6).unwrap(), "RenamedSans-Bold");
+        assert_eq!(names.get(&16).unwrap(), "Renamed Sans");
+        assert_eq!(names.get(&17).unwrap(), "Bold");
+        assert!(names.get(&3).unwrap().contains("Fount"));
+        assert!(has_valid_windows_name(name_data, 1));
+        assert!(has_valid_windows_name(name_data, 16));
+        assert_eq!(compute_checksum(&rewritten), CHECKSUM_MAGIC);
+    }
+
+    #[test]
+    fn apply_name_draft_keeps_cyrillic_family() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "fonts/gt-america.com/GT_America_Intl_Mono/GT-America-Intl-Mono-400-Variable.ttf",
+        );
+        let font = std::fs::read(path).unwrap();
+        let draft = NameDraft {
+            family: "Гарнитура".into(),
+            subfamily: "Regular".into(),
+            full_name: None,
+            postscript: None,
+            filename: None,
+        };
+        let rewritten = apply_name_draft(&font, &draft).unwrap();
+        let tables = parse_tables(&rewritten).unwrap();
+        let name = tables.iter().find(|table| &table.tag == b"name").unwrap();
+        let name_data = slice_range(&rewritten, name.offset, name.length).unwrap();
+        let names = read_name_values(name_data).unwrap();
+        assert_eq!(names.get(&1).unwrap(), "Гарнитура");
+        assert_eq!(names.get(&16).unwrap(), "Гарнитура");
     }
 }

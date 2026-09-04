@@ -7,6 +7,8 @@ const state = {
   tabId: null,
   cache: new Map(), // url -> { bytes: Uint8Array, blobUrl: string }
   faces: new Set(), // preview @font-face rules already written (survives re-render)
+  drafts: {},
+  expanded: new Set(),
 };
 
 const el = {
@@ -22,6 +24,7 @@ const el = {
   status: document.getElementById("status"),
   grabZip: document.getElementById("grab-zip"),
   grabFiles: document.getElementById("grab-files"),
+  renameFamily: document.getElementById("rename-family"),
   faceStyle: (() => {
     const s = document.createElement("style");
     document.head.appendChild(s);
@@ -90,8 +93,14 @@ async function init() {
     }
 
     found.forEach((f, i) => (f.id = `${i}:${f.url}`));
+    const originals = found.map((font) => font.family);
     deriveDisplayNames(found, slugFromUrl(tab.url));
     state.fonts = found;
+    state.drafts = {};
+    state.expanded = new Set();
+    found.forEach((font, index) => {
+      state.drafts[font.id] = makeDraft(font, originals[index]);
+    });
 
     if (found.length === 0) {
       showEmpty("No downloadable fonts found on this page.", false);
@@ -215,6 +224,8 @@ function showEmpty(message, isError) {
 function matchesFilter(font, query) {
   if (!query) return true;
   if (font.family.toLowerCase().includes(query)) return true;
+  const draft = state.drafts[font.id];
+  if (draft && draft.family.toLowerCase().includes(query)) return true;
   return font.url.toLowerCase().includes(query);
 }
 
@@ -264,6 +275,9 @@ function buildCard(font, sample, index) {
   card.dataset.id = font.id;
   card.style.setProperty("--d", `${Math.min(index, 16) * 0.02}s`);
 
+  const draft = state.drafts[font.id] || makeDraft(font);
+  state.drafts[font.id] = draft;
+
   const badges = [];
   if (font.weight && font.weight !== "400") badges.push(`<span class="badge">${esc(font.weight)}</span>`);
   if (font.style && font.style !== "normal") badges.push(`<span class="badge">${esc(font.style)}</span>`);
@@ -272,25 +286,55 @@ function buildCard(font, sample, index) {
   if (fmt) badges.push(`<span class="badge fmt">${esc(fmt)}</span>`);
 
   const number = String(index + 1).padStart(2, "0");
+  const expanded = state.expanded.has(font.id);
   card.innerHTML = `
     <div class="specimen-head">
       <label class="pick">
         <input type="checkbox" ${state.selected.has(font.id) ? "checked" : ""}>
         <span class="mark"></span>
         <span class="idx">${number}</span>
-        <span class="font-name" title="${esc(font.family)}">${esc(font.family)}</span>
       </label>
+      <input class="font-name" data-field="family" value="${esc(draft.family)}" spellcheck="false" autocomplete="off">
+      <button class="name-toggle" type="button" aria-expanded="${expanded ? "true" : "false"}">Names</button>
       <div class="badges">${badges.join("")}</div>
+    </div>
+    <div class="specimen-names" ${expanded ? "" : "hidden"}>
+      <label>Subfamily <input data-field="subfamily" value="${esc(draft.subfamily)}" spellcheck="false"></label>
+      <label>Full <input data-field="full_name" value="${esc(draft.full_name)}" spellcheck="false"></label>
+      <label>PS <input data-field="postscript" value="${esc(draft.postscript)}" spellcheck="false"></label>
+      <label>File <input data-field="filename" value="${esc(draft.filename)}" spellcheck="false"></label>
     </div>
     <div class="preview loading">${esc(sample)}</div>
   `;
 
-  card.querySelector("input").addEventListener("change", (event) => {
+  card.querySelector(".pick input").addEventListener("change", (event) => {
     if (event.target.checked) state.selected.add(font.id);
     else state.selected.delete(font.id);
     card.classList.toggle("selected", event.target.checked);
     updateSelection();
   });
+
+  const names = card.querySelector(".specimen-names");
+  const toggle = card.querySelector(".name-toggle");
+  toggle.addEventListener("click", () => {
+    const open = names.hidden;
+    names.hidden = !open;
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) state.expanded.add(font.id);
+    else state.expanded.delete(font.id);
+  });
+
+  for (const input of card.querySelectorAll("input[data-field]")) {
+    input.addEventListener("input", () => {
+      writeDraftField(font.id, input.dataset.field, input.value);
+      if (input.dataset.field === "family" || input.dataset.field === "subfamily") {
+        for (const field of ["full_name", "postscript", "filename"]) {
+          const auto = card.querySelector(`input[data-field="${field}"]`);
+          if (auto && document.activeElement !== auto) auto.value = state.drafts[font.id][field];
+        }
+      }
+    });
+  }
 
   return card;
 }
@@ -419,15 +463,17 @@ async function convertSelected(onProgress) {
   for (const font of fonts) {
     try {
       const entry = await ensureBytes(font);
+      const draft = state.drafts[font.id];
       const sfnt = await FontConverter.convert(
         entry.bytes,
         formatCode(font, entry.bytes),
         font.family,
         font.weight,
-        font.style
+        font.style,
+        draft && draft.dirty ? draft : null
       );
       const ext = FontConverter.sfntExtension(sfnt);
-      converted.push({ name: uniqueName(outputName(font, ext), usedNames), data: sfnt });
+      converted.push({ name: uniqueName(outputName(font, ext, draft), usedNames), data: sfnt });
     } catch (error) {
       failures.push(`${font.family}: ${error.message}`);
     }
@@ -465,11 +511,11 @@ async function grab(mode) {
   try {
     if (mode === "zip") {
       const blob = await Zip.create(converted);
-      await download(URL.createObjectURL(blob), `FontGrabber/${zipName()}`);
+      await download(URL.createObjectURL(blob), `Fount/${zipName()}`);
     } else {
       for (const file of converted) {
         const blob = new Blob([file.data], { type: "application/octet-stream" });
-        await download(URL.createObjectURL(blob), `FontGrabber/${file.name}`);
+        await download(URL.createObjectURL(blob), `Fount/${file.name}`);
       }
     }
     const failNote = failures.length ? ` · ${failures.length} failed` : "";
@@ -515,6 +561,16 @@ el.selectNone.addEventListener("click", () => {
   syncChecks();
   updateSelection();
 });
+if (el.renameFamily) {
+  el.renameFamily.addEventListener("click", () => {
+    if (state.selected.size === 0) return;
+    const current = state.drafts[[...state.selected][0]];
+    const family = window.prompt("Family name for selected faces", current ? current.family : "");
+    if (!family || !family.trim()) return;
+    for (const id of state.selected) writeDraftField(id, "family", family.trim());
+    render();
+  });
+}
 
 function syncChecks() {
   el.list.querySelectorAll(".font-card").forEach((card) => {
@@ -543,12 +599,90 @@ function setStatus(message, kind) {
 // ---------------------------------------------------------------------------
 // Filename helpers (mirrors the CLI's output naming)
 // ---------------------------------------------------------------------------
-function outputName(font, ext) {
+function outputName(font, ext, draft) {
+  if (draft && draft.filename) {
+    const stem = sanitize(draft.filename.replace(/\.(ttf|otf)$/i, "")) || "Font";
+    return `${stem}.${ext}`;
+  }
   const family = sanitize(font.family) || "Font";
   const weight = sanitize((font.weight || "400").toLowerCase()) || "400";
   const style = sanitize((font.style || "normal").toLowerCase());
   const styleSuffix = style === "normal" || style === "regular" || !style ? "" : `-${style}`;
   return `${family}-${weight}${styleSuffix}.${ext}`;
+}
+
+function writeDraftField(id, field, value) {
+  const draft = state.drafts[id];
+  if (!draft) return;
+  draft[field] = value;
+  draft.dirty = true;
+  if (field === "full_name") draft.dirtyFull = true;
+  if (field === "postscript") draft.dirtyPs = true;
+  if (field === "filename") draft.dirtyFile = true;
+  if (field === "family" || field === "subfamily") {
+    if (!draft.dirtyFull) draft.full_name = composeFull(draft.family, draft.subfamily);
+    if (!draft.dirtyPs) draft.postscript = composePs(draft.family, draft.subfamily);
+    if (!draft.dirtyFile) draft.filename = composeFile(draft.family, draft.subfamily);
+  }
+}
+
+function makeDraft(font, originalFamily) {
+  const family = (font.family || "").trim() || "Font";
+  const subfamily = defaultSubfamily(font);
+  const dirty =
+    looksObfuscated(originalFamily || "") || (originalFamily || "") !== (font.family || "");
+  return {
+    family,
+    subfamily,
+    full_name: composeFull(family, subfamily),
+    postscript: composePs(family, subfamily),
+    filename: composeFile(family, subfamily),
+    dirty,
+    dirtyFull: false,
+    dirtyPs: false,
+    dirtyFile: false,
+  };
+}
+
+function looksObfuscated(name) {
+  const value = (name || "").trim();
+  if (!value) return true;
+  if (/^font-style-\d+$/i.test(value)) return true;
+  if (/^[A-Z]{1,3}-[A-Z]{1,3}(-|$)/.test(value)) return true;
+  return false;
+}
+
+function defaultSubfamily(font) {
+  const fromCss = (font.family || "").match(
+    /(Thin|Hairline|ExtraLight|Light|Regular|Book|Medium|SemiBold|DemiBold|Bold|ExtraBold|Black|Heavy)( Italic| Oblique)?$/i
+  );
+  if (fromCss) return fromCss[1] + (fromCss[2] || "");
+  const style = (font.style || "").toLowerCase();
+  const italic = style === "italic" || style === "oblique";
+  const weight = String(font.weight || "400");
+  if (weight === "700" && italic) return "Bold Italic";
+  if (weight === "700") return "Bold";
+  if (italic) return "Italic";
+  return "Regular";
+}
+
+function composeFull(family, subfamily) {
+  if (!subfamily || /^regular$/i.test(subfamily)) return family;
+  return `${family} ${subfamily}`;
+}
+
+function composePs(family, subfamily) {
+  const left = (family || "").replace(/[^A-Za-z0-9-]/g, "");
+  const right = (subfamily || "").replace(/[^A-Za-z0-9-]/g, "");
+  const value = right && !/^regular$/i.test(subfamily || "") ? `${left}-${right}` : left;
+  return (value || "Font").slice(0, 63);
+}
+
+function composeFile(family, subfamily) {
+  const left = sanitize(family) || "Font";
+  const right = sanitize(subfamily);
+  if (!right || /^regular$/i.test(subfamily || "")) return left;
+  return `${left}-${right}`;
 }
 
 // Two faces can legitimately reduce to the same file name (same family/weight, or

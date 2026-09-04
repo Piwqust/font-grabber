@@ -1,8 +1,8 @@
 <div align="center">
 
-# Font Grabber
+# Fount
 
-**Scrape the fonts any website uses — and save them as clean `TTF` / `OTF`.**
+**Take the type any website uses — and save it as clean `TTF` / `OTF`.**
 
 A CLI, a local web app, and a Chrome extension that share one font engine: discover
 every face on a page (even dynamic, variable, and tester-injected ones), then
@@ -17,16 +17,16 @@ axes preserved.
 
 <br/>
 
-<img src="docs/web-hero.png" alt="Font Grabber — local web app" width="820">
+<img src="docs/web-hero.png" alt="Fount — local web app" width="820">
 
 </div>
 
 ---
 
 Foundry sites, type testers, SPAs — fonts hide in CSS, in JavaScript, behind
-extensionless URLs, and inside Web Workers. Font Grabber finds them all by running
-the **same discovery engine** in three places, then converts them locally. Nothing
-is uploaded anywhere.
+extensionless URLs, and inside Web Workers. Fount finds them all by running
+the **same discovery engine** in three places, then converts them locally.
+A private hosted instance (Basic Auth, ZIP only) is optional; see [`deploy/`](deploy/).
 
 ## Contents
 
@@ -118,8 +118,9 @@ $ font-grabber grab https://displaay.net/typeface/perfektta --all
   the CLI, web app, and extension.
 - **Live previews** — every candidate rendered in its real typeface with editable
   sample text and adjustable size.
+- **Editable names** — rewrite family, subfamily, full name, PostScript name, and filename before the file is written, so `Ee-Te-Bold` can install as `GT Eesti Bold`.
 - **Flexible output** — ZIP, a chosen folder, or individual files.
-- **100% local** — no servers, no uploads, no telemetry.
+- **Local by default** — the CLI, web app, and extension convert on your machine. Hosted mode is a locked-down personal instance, not a public upload service.
 
 ## How it works
 

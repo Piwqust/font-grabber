@@ -1,4 +1,4 @@
-/* Font Grabber — editorial / type-foundry redesign
+/* Fount — editorial / type-foundry
    Warm paper, near-black ink, one vermilion accent. Specimens are the hero. */
 
 :root {
@@ -121,6 +121,25 @@ button { cursor: pointer; }
 .scan-go:active:not(:disabled) { transform: translateY(1px); }
 .scan-go:disabled { opacity: 0.5; cursor: progress; }
 
+@media (max-width: 720px) {
+  .scan {
+    flex-wrap: wrap;
+    border-bottom: none;
+    max-width: none;
+  }
+  .scan-input {
+    flex: 1 0 100%;
+    border-bottom: 2px solid var(--ink);
+  }
+  .scan-mode { padding: 12px 14px 12px 0; }
+  .scan-go { min-height: 44px; }
+  .specimen-head { flex-wrap: wrap; }
+  .font-name { width: auto; max-width: none; flex: 1 1 12ch; }
+  .specimen-names { margin-left: 0; grid-template-columns: 1fr 1fr; }
+  .grab-bar { flex-wrap: wrap; gap: 12px; }
+  .grab-go { margin-left: 0; }
+}
+
 .status {
   margin: 18px 0 0;
   font-family: var(--mono);
@@ -147,6 +166,7 @@ button { cursor: pointer; }
 .warnings[hidden] { display: none; }
 
 /* Controls ------------------------------------------------------------- */
+[hidden] { display: none !important; }
 .results[hidden] { display: none; }
 .controls {
   position: sticky; top: 0; z-index: 5;
@@ -213,8 +233,41 @@ button { cursor: pointer; }
   border: solid var(--accent-ink); border-width: 0 2px 2px 0; transform: rotate(42deg);
 }
 .idx { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-.font-name { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.font-name {
+  font-size: 17px; font-weight: 600; letter-spacing: -0.01em;
+  min-width: 8ch; max-width: 42ch; width: 22ch;
+  border: none; border-bottom: 1px solid transparent; background: transparent;
+  padding: 0; outline: none;
+}
+.font-name:hover, .font-name:focus { border-bottom-color: var(--line-strong); }
 .specimen.selected .font-name { color: var(--accent); }
+.name-toggle {
+  background: none; border: none; padding: 0;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--muted);
+}
+.name-toggle:hover, .name-toggle[aria-expanded="true"] { color: var(--accent); }
+.specimen-names {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 18px;
+  margin: 0 0 14px 40px;
+  max-width: 720px;
+}
+.specimen-names[hidden] { display: none; }
+.specimen-names label {
+  display: flex; flex-direction: column; gap: 4px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--muted);
+}
+.specimen-names input {
+  border: none; border-bottom: 1px solid var(--line-strong);
+  background: transparent; padding: 4px 0; font-size: 14px; letter-spacing: 0;
+  text-transform: none; color: var(--ink); outline: none; font-family: var(--sans);
+}
+.specimen-names input:focus { border-color: var(--accent); }
+
+body[data-hosted="true"] .local-only { display: none; }
 
 .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .badge {

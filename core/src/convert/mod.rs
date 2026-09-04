@@ -1,15 +1,19 @@
 mod name_repair;
 
-use std::fs;
+use std::{collections::HashMap, fs};
 
 use anyhow::{anyhow, bail, Context, Result};
 use ttf_parser::{name_id, Face};
 use wuff::{decompress_woff1, decompress_woff2};
 
 use crate::{
-    domain::{CachedFont, ConvertedFont, FontFormat, FontScript, OutputFormat, VariableAxis},
-    support::{emit_log, Logger},
+    domain::{
+        CachedFont, ConvertedFont, FontFormat, FontScript, NameDraft, OutputFormat, VariableAxis,
+    },
+    support::{emit_log, sanitize_file_stem, Logger},
 };
+
+pub use name_repair::subfamily_from_weight_style;
 
 const WOFF_SIGNATURE: u32 = 0x774F_4646;
 const WOFF2_SIGNATURE: u32 = 0x774F_4632;
@@ -44,6 +48,7 @@ pub struct ConversionBatch {
 
 pub fn convert_fonts(
     cached_fonts: &[CachedFont],
+    drafts: Option<&HashMap<String, NameDraft>>,
     logger: Option<Logger>,
 ) -> Result<ConversionBatch> {
     let mut converted = Vec::new();
@@ -60,7 +65,8 @@ pub fn convert_fonts(
             ),
         );
 
-        match convert_font(cached) {
+        let draft = drafts.and_then(|map| map.get(&cached.info.id));
+        match convert_font(cached, draft) {
             Ok(font) => converted.push(font),
             Err(error) => failures.push(format!(
                 "{} ({} {}): {error}",
@@ -75,7 +81,7 @@ pub fn convert_fonts(
     })
 }
 
-fn convert_font(cached: &CachedFont) -> Result<ConvertedFont> {
+fn convert_font(cached: &CachedFont, draft: Option<&NameDraft>) -> Result<ConvertedFont> {
     let raw = fs::read(&cached.cached_path).with_context(|| {
         format!(
             "Failed to read cached font {}",
@@ -83,8 +89,47 @@ fn convert_font(cached: &CachedFont) -> Result<ConvertedFont> {
         )
     })?;
     let sfnt = decompress_to_sfnt(&raw, cached.downloaded_format)?;
-    let repaired = name_repair::repair_name_table_if_needed(&sfnt, &cached.info)?;
-    analyze_font(repaired, cached)
+    let named = if let Some(draft) = draft {
+        name_repair::apply_name_draft(&sfnt, draft)?
+    } else {
+        name_repair::repair_name_table_if_needed(&sfnt, &cached.info)?
+    };
+    let mut converted = analyze_font(named, cached)?;
+    if let Some(draft) = draft {
+        if !draft.family.trim().is_empty() {
+            converted.info.family = draft.family.trim().to_string();
+        }
+        converted.output_stem = draft_output_stem(draft);
+    }
+    Ok(converted)
+}
+
+fn draft_output_stem(draft: &NameDraft) -> Option<String> {
+    let explicit = draft
+        .filename
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .trim_end_matches(".ttf")
+                .trim_end_matches(".otf")
+                .trim_end_matches(".TTF")
+                .trim_end_matches(".OTF")
+                .to_string()
+        })
+        .filter(|value| !value.is_empty());
+    if explicit.is_some() {
+        return explicit;
+    }
+
+    let family = sanitize_file_stem(&draft.family);
+    let subfamily = sanitize_file_stem(&draft.subfamily);
+    if subfamily.is_empty() || subfamily.eq_ignore_ascii_case("regular") {
+        Some(family)
+    } else {
+        Some(format!("{family}-{subfamily}"))
+    }
 }
 
 fn analyze_font(sfnt_data: Vec<u8>, cached: &CachedFont) -> Result<ConvertedFont> {
@@ -121,6 +166,7 @@ fn analyze_font(sfnt_data: Vec<u8>, cached: &CachedFont) -> Result<ConvertedFont
         axes,
         source_url: cached.source_url.clone(),
         transfer_method: cached.transfer_method,
+        output_stem: None,
     })
 }
 

@@ -1,0 +1,17 @@
+{$FOUNT_DOMAIN} {
+    encode gzip
+
+    basic_auth {
+        {$FOUNT_AUTH_USER} {$FOUNT_AUTH_HASH}
+    }
+
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "no-referrer"
+        X-Robots-Tag "noindex, nofollow"
+        -Server
+    }
+
+    reverse_proxy app:8787
+}

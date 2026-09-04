@@ -1,10 +1,14 @@
 "use strict";
 
+const HOSTED = document.body.dataset.hosted === "true";
+
 const state = {
   url: "",
   mode: "auto",
   fonts: [],
   selected: new Set(),
+  drafts: {},
+  expanded: new Set(),
 };
 
 const el = {
@@ -28,8 +32,15 @@ const el = {
   outputDir: document.getElementById("output-dir"),
   grabBtn: document.getElementById("grab-btn"),
   grabStatus: document.getElementById("grab-status"),
+  bulkFamily: document.getElementById("bulk-family"),
+  bulkFamilyCtl: document.getElementById("bulk-family-ctl"),
   fontStyle: document.getElementById("font-face-styles") || createStyleSheet(),
 };
+
+if (HOSTED) {
+  const edition = document.getElementById("edition-label");
+  if (edition) edition.textContent = "Hosted";
+}
 
 function createStyleSheet() {
   const style = document.createElement("style");
@@ -104,6 +115,11 @@ async function runScan() {
 
     state.fonts = data.fonts || [];
     state.selected = new Set();
+    state.expanded = new Set();
+    state.drafts = {};
+    for (const font of state.fonts) {
+      state.drafts[font.id] = makeDraft(font, url);
+    }
     resetPreviews();
     renderWarnings(data.warnings || []);
 
@@ -166,6 +182,8 @@ function renderWarnings(warnings) {
 function matchesFilter(font, query) {
   if (!query) return true;
   if (font.family.toLowerCase().includes(query)) return true;
+  const draft = state.drafts[font.id];
+  if (draft && draft.family.toLowerCase().includes(query)) return true;
   const src = font.sources && font.sources[0] ? font.sources[0].url.toLowerCase() : "";
   return src.includes(query);
 }
@@ -209,8 +227,10 @@ function buildCard(font, sample, index) {
   const card = document.createElement("article");
   card.className = "specimen font-card" + (state.selected.has(font.id) ? " selected" : "");
   card.dataset.id = font.id;
-  // Stagger the entrance, but cap the delay so deep rows don't wait forever.
   card.style.setProperty("--d", `${Math.min(index, 18) * 0.025}s`);
+
+  const draft = state.drafts[font.id] || makeDraft(font, state.url);
+  state.drafts[font.id] = draft;
 
   const badges = [];
   if (font.weight && font.weight !== "400") badges.push(badge(font.weight));
@@ -223,26 +243,53 @@ function buildCard(font, sample, index) {
 
   const number = String(index + 1).padStart(2, "0");
   const checked = state.selected.has(font.id) ? "checked" : "";
+  const expanded = state.expanded.has(font.id);
   card.innerHTML = `
     <div class="specimen-head">
       <label class="pick">
         <input type="checkbox" ${checked}>
         <span class="mark"></span>
         <span class="idx">${number}</span>
-        <span class="font-name">${escapeHtml(font.family)}</span>
       </label>
+      <input class="font-name" data-field="family" value="${escapeAttr(draft.family)}" spellcheck="false" autocomplete="off">
+      <button class="name-toggle" type="button" aria-expanded="${expanded ? "true" : "false"}">Names</button>
       <div class="badges">${badges.join("")}</div>
+    </div>
+    <div class="specimen-names" ${expanded ? "" : "hidden"}>
+      <label>Subfamily <input data-field="subfamily" value="${escapeAttr(draft.subfamily)}" spellcheck="false" autocomplete="off"></label>
+      <label>Full name <input data-field="full_name" value="${escapeAttr(draft.full_name)}" spellcheck="false" autocomplete="off"></label>
+      <label>PostScript <input data-field="postscript" value="${escapeAttr(draft.postscript)}" spellcheck="false" autocomplete="off"></label>
+      <label>Filename <input data-field="filename" value="${escapeAttr(draft.filename)}" spellcheck="false" autocomplete="off"></label>
     </div>
     <p class="preview loading" data-id="${escapeAttr(font.id)}">${escapeHtml(sample)}</p>
   `;
 
-  const checkbox = card.querySelector("input");
+  const checkbox = card.querySelector(".pick input");
   checkbox.addEventListener("change", () => {
     if (checkbox.checked) state.selected.add(font.id);
     else state.selected.delete(font.id);
     card.classList.toggle("selected", checkbox.checked);
     updateSelection();
   });
+
+  const toggle = card.querySelector(".name-toggle");
+  const names = card.querySelector(".specimen-names");
+  toggle.addEventListener("click", () => {
+    const open = names.hidden;
+    names.hidden = !open;
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) state.expanded.add(font.id);
+    else state.expanded.delete(font.id);
+  });
+
+  for (const input of card.querySelectorAll("input[data-field]")) {
+    input.addEventListener("input", () => {
+      writeDraftField(font.id, input.dataset.field, input.value);
+      if (input.dataset.field === "family" || input.dataset.field === "subfamily") {
+        syncAutoFields(card, font.id);
+      }
+    });
+  }
 
   return card;
 }
@@ -292,6 +339,15 @@ function updateSelection() {
   const n = state.selected.size;
   el.selectedCount.textContent = `${n} selected`;
   el.grabBtn.disabled = n === 0;
+  if (el.bulkFamilyCtl) {
+    el.bulkFamilyCtl.hidden = n === 0;
+    if (n > 0) {
+      const first = state.drafts[[...state.selected][0]];
+      if (first && document.activeElement !== el.bulkFamily) {
+        el.bulkFamily.value = first.family;
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -326,6 +382,7 @@ el.grabBtn.addEventListener("click", async () => {
         ids,
         delivery,
         output_dir: el.outputDir.value.trim() || null,
+        names: namesPayload(ids),
       }),
     });
 
@@ -403,6 +460,161 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value).replace(/'/g, "&#39;");
+}
+
+if (el.bulkFamily) {
+  el.bulkFamily.addEventListener("change", () => {
+    const family = el.bulkFamily.value.trim();
+    if (!family || state.selected.size === 0) return;
+    for (const id of state.selected) {
+      writeDraftField(id, "family", family);
+    }
+    renderFonts();
+  });
+}
+
+function writeDraftField(id, field, value) {
+  const draft = state.drafts[id];
+  if (!draft) return;
+  draft[field] = value;
+  draft.dirty = true;
+  if (field === "full_name") draft.dirtyFull = true;
+  if (field === "postscript") draft.dirtyPs = true;
+  if (field === "filename") draft.dirtyFile = true;
+  if (field === "family" || field === "subfamily") {
+    if (!draft.dirtyFull) draft.full_name = composeFull(draft.family, draft.subfamily);
+    if (!draft.dirtyPs) draft.postscript = composePs(draft.family, draft.subfamily);
+    if (!draft.dirtyFile) draft.filename = composeFile(draft.family, draft.subfamily);
+  }
+}
+
+function syncAutoFields(card, id) {
+  const draft = state.drafts[id];
+  if (!draft) return;
+  const map = {
+    full_name: draft.full_name,
+    postscript: draft.postscript,
+    filename: draft.filename,
+  };
+  for (const [field, value] of Object.entries(map)) {
+    const input = card.querySelector(`input[data-field="${field}"]`);
+    if (input && document.activeElement !== input) input.value = value;
+  }
+}
+
+function namesPayload(ids) {
+  return ids
+    .map((id) => {
+      const draft = state.drafts[id];
+      if (!draft || !draft.dirty) return null;
+      return {
+        id,
+        family: draft.family,
+        subfamily: draft.subfamily,
+        full_name: draft.full_name,
+        postscript: draft.postscript,
+        filename: draft.filename,
+      };
+    })
+    .filter(Boolean);
+}
+
+function makeDraft(font, pageUrl) {
+  let family = (font.family || "").trim();
+  const sourceUrl = font.sources && font.sources[0] ? font.sources[0].url : "";
+  const suggested = typefaceFromUrl(sourceUrl) || typefaceFromUrl(pageUrl);
+  const dirty = looksObfuscated(family) && !!suggested;
+  if (dirty) family = suggested;
+  const subfamily = defaultSubfamily(font);
+  return {
+    family: family || "Font",
+    subfamily,
+    full_name: composeFull(family || "Font", subfamily),
+    postscript: composePs(family || "Font", subfamily),
+    filename: composeFile(family || "Font", subfamily),
+    dirty,
+    dirtyFull: false,
+    dirtyPs: false,
+    dirtyFile: false,
+  };
+}
+
+function looksObfuscated(name) {
+  const value = (name || "").trim();
+  if (!value) return true;
+  if (/^font-style-\d+$/i.test(value)) return true;
+  if (/^[A-Z]{1,3}-[A-Z]{1,3}(-|$)/.test(value)) return true;
+  return false;
+}
+
+function typefaceFromUrl(url) {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url, window.location.href);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    for (let index = parts.length - 1; index >= 0; index -= 1) {
+      let segment = decodeURIComponent(parts[index]).replace(/\.(woff2?|ttf|otf|html?|php|aspx?)$/i, "");
+      if (!segment || /^(typeface|font|fonts|family|download|static|assets|css|js|woff2?)$/i.test(segment)) {
+        continue;
+      }
+      if (segment.length < 3) continue;
+      if (/^v?\d+(\.\d+)*$/.test(segment)) continue;
+      return humanizeSegment(segment);
+    }
+  } catch {
+    /* ignore */
+  }
+  return "";
+}
+
+function humanizeSegment(segment) {
+  return segment
+    .replace(/[-_]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (character) => character.toUpperCase())
+    .trim();
+}
+
+function defaultSubfamily(font) {
+  const fromCss = (font.family || "").match(
+    /(Thin|Hairline|ExtraLight|UltraLight|Light|Regular|Book|Medium|SemiBold|DemiBold|Bold|ExtraBold|UltraBold|Black|Heavy)( Italic| Oblique)?$/i
+  );
+  if (fromCss) {
+    return (fromCss[1] + (fromCss[2] || "")).replace(/([a-z])([A-Z])/g, "$1 $2");
+  }
+  const style = (font.style || "").toLowerCase();
+  const italic = style === "italic" || style === "oblique";
+  const weight = String(font.weight || "400");
+  if (weight === "700" && italic) return "Bold Italic";
+  if (weight === "700") return "Bold";
+  if (italic) return style === "oblique" ? "Oblique" : "Italic";
+  return "Regular";
+}
+
+function composeFull(family, subfamily) {
+  if (!subfamily || /^regular$/i.test(subfamily)) return family;
+  return `${family} ${subfamily}`;
+}
+
+function composePs(family, subfamily) {
+  const left = (family || "").replace(/[^A-Za-z0-9-]/g, "");
+  const right = (subfamily || "").replace(/[^A-Za-z0-9-]/g, "");
+  const value = right && !/^regular$/i.test(subfamily || "") ? `${left}-${right}` : left;
+  return (value || "Font").slice(0, 63);
+}
+
+function composeFile(family, subfamily) {
+  const left = sanitizeStem(family);
+  const right = sanitizeStem(subfamily);
+  if (!right || /^regular$/i.test(subfamily || "")) return left;
+  return `${left}-${right}`;
+}
+
+function sanitizeStem(value) {
+  return (value || "")
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "Font";
 }
 
 el.url.focus();

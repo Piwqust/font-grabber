@@ -8,7 +8,7 @@ use crate::domain::DiscoveryMode;
 #[command(
     name = "font-grabber",
     version,
-    about = "Scrape website fonts and save clean TTF/OTF files",
+    about = "Discover website type and save clean TTF/OTF files",
     propagate_version = true
 )]
 pub struct Cli {
@@ -59,6 +59,15 @@ pub struct GrabArgs {
 
     #[arg(long, help = "Print machine-readable JSON")]
     pub json: bool,
+
+    #[arg(long, help = "Overwrite the OpenType family name on every saved face")]
+    pub family: Option<String>,
+
+    #[arg(
+        long,
+        help = "Overwrite the OpenType subfamily (style) on every saved face"
+    )]
+    pub subfamily: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -82,11 +91,7 @@ pub struct ScanArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct ServeArgs {
-    #[arg(
-        long,
-        default_value_t = 8787,
-        help = "Port for the local web server"
-    )]
+    #[arg(long, default_value_t = 8787, help = "Port for the local web server")]
     pub port: u16,
 
     #[arg(
@@ -113,6 +118,12 @@ pub struct ServeArgs {
 
     #[arg(long, help = "Do not open the browser automatically")]
     pub no_open: bool,
+
+    #[arg(
+        long,
+        help = "Hosted mode: ZIP only, block private-network fetches, disable folder delivery"
+    )]
+    pub hosted: bool,
 }
 
 #[derive(Args, Debug, Clone)]

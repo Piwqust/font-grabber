@@ -22,7 +22,7 @@ pub async fn download_fonts(
     cache_dir: &Path,
     concurrency: usize,
     allow_browser_fallback: bool,
-    webdriver_url: &str,
+    restrict_private: bool,
     logger: Option<Logger>,
 ) -> Result<DownloadBatch> {
     let client = build_http_client()?;
@@ -36,9 +36,10 @@ pub async fn download_fonts(
         let page_url = page_url.to_string();
         let cache_dir = cache_dir.to_path_buf();
         async move {
-            let result = http::download_font(client, font.clone(), page_url, cache_dir)
-                .await
-                .map_err(|error| error.to_string());
+            let result =
+                http::download_font(client, font.clone(), page_url, cache_dir, restrict_private)
+                    .await
+                    .map_err(|error| error.to_string());
             (index, font, result)
         }
     }))
@@ -68,26 +69,35 @@ pub async fn download_fonts(
                 browser_retry.len()
             ),
         );
-        match browser::BrowserFetcher::connect(webdriver_url, page_url, logger.clone()).await {
-            Ok(mut session) => {
-                for (font, http_error) in browser_retry {
-                    match session.fetch_font(&font, cache_dir).await {
-                        Ok(cached_font) => cached.push(cached_font),
-                        Err(browser_error) => failures.push(failure_line(
-                            &font,
-                            format!("http: {http_error}; browser: {browser_error}"),
-                        )),
-                    }
-                }
-                let _ = session.shutdown().await;
-            }
-            Err(browser_error) => {
-                for (font, http_error) in browser_retry {
-                    failures.push(failure_line(
-                        &font,
-                        format!("http: {http_error}; browser session: {browser_error}"),
-                    ));
-                }
+        let retry_fonts: Vec<FontCandidate> =
+            browser_retry.iter().map(|(font, _)| font.clone()).collect();
+        let http_errors: Vec<String> = browser_retry
+            .iter()
+            .map(|(_, error)| error.clone())
+            .collect();
+        let page = page_url.to_string();
+        let dir = cache_dir.to_path_buf();
+        let log = logger.clone();
+        let fetched = match tokio::task::spawn_blocking(move || {
+            browser::fetch_failed_fonts(&retry_fonts, &page, &dir, log)
+        })
+        .await
+        {
+            Ok(results) => results,
+            Err(error) => browser_retry
+                .iter()
+                .map(|(font, _)| (font.clone(), Err(format!("browser task panicked: {error}"))))
+                .collect(),
+        };
+
+        for (index, (font, result)) in fetched.into_iter().enumerate() {
+            let http_error = http_errors.get(index).cloned().unwrap_or_default();
+            match result {
+                Ok(cached_font) => cached.push(cached_font),
+                Err(browser_error) => failures.push(failure_line(
+                    &font,
+                    format!("http: {http_error}; browser: {browser_error}"),
+                )),
             }
         }
     }

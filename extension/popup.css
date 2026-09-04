@@ -1,4 +1,4 @@
-/* Font Grabber — extension popup, editorial / type-foundry. Compact sibling of
+/* Fount — extension popup, editorial / type-foundry. Compact sibling of
    the web app: warm paper, near-black ink, one vermilion accent. */
 
 :root {
@@ -104,8 +104,34 @@ input[type="range"] { width: 104px; accent-color: var(--accent); flex: none; }
   border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(42deg);
 }
 .idx { font-family: var(--mono); font-size: 10.5px; color: var(--muted); flex: none; }
-.font-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.font-name {
+  font-weight: 600; font-size: 13px; min-width: 0; flex: 1;
+  border: none; border-bottom: 1px solid transparent; background: transparent;
+  padding: 0; outline: none;
+}
+.font-name:hover, .font-name:focus { border-bottom-color: var(--line-strong); }
 .specimen.selected .font-name { color: var(--accent); }
+.name-toggle {
+  background: none; border: none; padding: 0;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted); flex: none;
+}
+.name-toggle:hover, .name-toggle[aria-expanded="true"] { color: var(--accent); }
+.specimen-names {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px;
+  margin: 0 0 8px 32px;
+}
+.specimen-names[hidden] { display: none; }
+.specimen-names label {
+  display: flex; flex-direction: column; gap: 2px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--muted);
+}
+.specimen-names input {
+  border: none; border-bottom: 1px solid var(--line-strong);
+  background: transparent; padding: 2px 0; font-size: 12px; letter-spacing: 0;
+  text-transform: none; color: var(--ink); outline: none; font-family: var(--sans);
+}
 .badges { display: flex; gap: 5px; margin-left: auto; flex: none; }
 .badge {
   font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em; text-transform: uppercase;
