@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{header, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -47,6 +47,8 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         .route("/", get(index))
         .route("/style.css", get(style))
         .route("/app.js", get(script))
+        .route("/favicon.svg", get(favicon))
+        .route("/assets/:name", get(asset))
         .route("/api/scan", post(scan))
         .route("/api/grab", post(grab))
         .route("/api/font", get(font_proxy))
@@ -109,6 +111,49 @@ async fn script() -> impl IntoResponse {
         )],
         include_str!("../web/app.js"),
     )
+}
+
+async fn favicon() -> Response {
+    static_bytes("image/svg+xml; charset=utf-8", include_bytes!("../web/favicon.svg"))
+}
+
+async fn asset(Path(name): Path<String>) -> Response {
+    match name.as_str() {
+        "hero.webp" => static_bytes("image/webp", include_bytes!("../web/assets/hero.webp")),
+        "plate.webp" => static_bytes("image/webp", include_bytes!("../web/assets/plate.webp")),
+        "studio.webp" => static_bytes("image/webp", include_bytes!("../web/assets/studio.webp")),
+        "press.webp" => static_bytes("image/webp", include_bytes!("../web/assets/press.webp")),
+        "geist-400.woff2" => static_bytes("font/woff2", include_bytes!("../web/assets/geist-400.woff2")),
+        "geist-600.woff2" => static_bytes("font/woff2", include_bytes!("../web/assets/geist-600.woff2")),
+        "geist-800.woff2" => static_bytes("font/woff2", include_bytes!("../web/assets/geist-800.woff2")),
+        "newsreader-400.woff2" => {
+            static_bytes("font/woff2", include_bytes!("../web/assets/newsreader-400.woff2"))
+        }
+        "newsreader-400i.woff2" => {
+            static_bytes("font/woff2", include_bytes!("../web/assets/newsreader-400i.woff2"))
+        }
+        "newsreader-700.woff2" => {
+            static_bytes("font/woff2", include_bytes!("../web/assets/newsreader-700.woff2"))
+        }
+        "plex-mono-400.woff2" => {
+            static_bytes("font/woff2", include_bytes!("../web/assets/plex-mono-400.woff2"))
+        }
+        _ => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+fn static_bytes(content_type: &'static str, body: &'static [u8]) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, content_type.to_string()),
+            (
+                header::CACHE_CONTROL,
+                "public, max-age=31536000, immutable".to_string(),
+            ),
+        ],
+        body,
+    )
+        .into_response()
 }
 
 // ---------------------------------------------------------------------------

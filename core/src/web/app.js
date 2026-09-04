@@ -29,6 +29,7 @@ const el = {
   selectedCount: document.getElementById("selected-count"),
   list: document.getElementById("font-list"),
   grabBar: document.getElementById("grab-bar"),
+  grabTools: document.getElementById("grab-tools"),
   outputDir: document.getElementById("output-dir"),
   grabBtn: document.getElementById("grab-btn"),
   grabStatus: document.getElementById("grab-status"),
@@ -40,6 +41,8 @@ const el = {
 if (HOSTED) {
   const edition = document.getElementById("edition-label");
   if (edition) edition.textContent = "Hosted";
+  const foot = document.getElementById("edition-foot");
+  if (foot) foot.textContent = "Hosted edition";
 }
 
 function createStyleSheet() {
@@ -125,23 +128,20 @@ async function runScan() {
 
     if (state.fonts.length === 0) {
       setScanStatus("No fonts found on that page.", "");
-      el.results.hidden = true;
-      el.grabBar.hidden = true;
+      showResults(false);
       return;
     }
 
-    const browserNote = data.used_browser ? " · via browser rendering" : "";
+    const browserNote = data.used_browser ? " via browser rendering" : "";
     setScanStatus(`Found ${state.fonts.length} face${state.fonts.length === 1 ? "" : "s"}${browserNote}.`, "");
     const mc = document.getElementById("masthead-count");
     if (mc) mc.textContent = `${state.fonts.length} faces`;
     renderFonts();
-    el.results.hidden = false;
-    el.grabBar.hidden = false;
+    showResults(true);
     updateSelection();
   } catch (error) {
     setScanStatus(error.message, "error");
-    el.results.hidden = true;
-    el.grabBar.hidden = true;
+    showResults(false);
   } finally {
     el.scanBtn.disabled = false;
   }
@@ -150,6 +150,17 @@ async function runScan() {
 function resetPreviews() {
   loaded.clear();
   el.fontStyle.textContent = "";
+}
+
+function showResults(visible) {
+  document.body.classList.toggle("has-results", visible);
+  el.results.hidden = !visible;
+  if (el.grabTools) el.grabTools.hidden = !visible;
+  if (!visible && el.grabStatus) el.grabStatus.textContent = "";
+  if (!visible) {
+    const mc = document.getElementById("masthead-count");
+    if (mc) mc.textContent = "No faces yet";
+  }
 }
 
 function setScanStatus(message, kind) {
@@ -251,17 +262,17 @@ function buildCard(font, sample, index) {
         <span class="mark"></span>
         <span class="idx">${number}</span>
       </label>
-      <input class="font-name" data-field="family" value="${escapeAttr(draft.family)}" spellcheck="false" autocomplete="off">
+      <input class="font-name" data-field="family" value="${escapeAttr(draft.family)}" spellcheck="false" autocomplete="off" aria-label="Family name">
       <button class="name-toggle" type="button" aria-expanded="${expanded ? "true" : "false"}">Names</button>
-      <div class="badges">${badges.join("")}</div>
     </div>
+    <p class="preview loading" data-id="${escapeAttr(font.id)}">${escapeHtml(sample)}</p>
+    <div class="badges">${badges.join("")}</div>
     <div class="specimen-names" ${expanded ? "" : "hidden"}>
       <label>Subfamily <input data-field="subfamily" value="${escapeAttr(draft.subfamily)}" spellcheck="false" autocomplete="off"></label>
       <label>Full name <input data-field="full_name" value="${escapeAttr(draft.full_name)}" spellcheck="false" autocomplete="off"></label>
       <label>PostScript <input data-field="postscript" value="${escapeAttr(draft.postscript)}" spellcheck="false" autocomplete="off"></label>
       <label>Filename <input data-field="filename" value="${escapeAttr(draft.filename)}" spellcheck="false" autocomplete="off"></label>
     </div>
-    <p class="preview loading" data-id="${escapeAttr(font.id)}">${escapeHtml(sample)}</p>
   `;
 
   const checkbox = card.querySelector(".pick input");
@@ -270,6 +281,11 @@ function buildCard(font, sample, index) {
     else state.selected.delete(font.id);
     card.classList.toggle("selected", checkbox.checked);
     updateSelection();
+  });
+  card.addEventListener("click", (event) => {
+    if (event.target.closest("input, button, .specimen-names")) return;
+    checkbox.checked = !checkbox.checked;
+    checkbox.dispatchEvent(new Event("change"));
   });
 
   const toggle = card.querySelector(".name-toggle");
