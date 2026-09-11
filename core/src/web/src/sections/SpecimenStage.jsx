@@ -39,15 +39,12 @@ export function SpecimenStage({ resetSignal = 0, onMove }) {
 const moveHint = (movable) =>
   movable ? " Arrow keys move the card, Escape puts it back." : "";
 
-/** Shared chrome: the hint that appears once a card is hovered or focused. */
-function CardHint({ children }) {
-  return (
-    <span class="card-hint" aria-hidden="true">
-      <Icon name="cursor" size={13} />
-      {children}
-    </span>
-  );
-}
+/**
+ * A card explains itself through its accessible name and the pointer that
+ * appears over it. There is no on-card caption: the specimens are meant to be
+ * looked at, and a strip of instructions along the bottom of each one turned
+ * four pieces of type into four buttons.
+ */
 
 const SITES = [
   {
@@ -117,7 +114,6 @@ function BrowserCard(props) {
           </span>
         </span>
       </span>
-      <CardHint>Click to change site</CardHint>
     </button>
   );
 }
@@ -170,7 +166,6 @@ function SerifCard(props) {
           </span>
         ))}
       </span>
-      <CardHint>Click to cycle styles</CardHint>
     </button>
   );
 }
@@ -204,7 +199,6 @@ function DiscoveryCard(props) {
         on this page
         <Icon name="arrowUpRight" size={14} />
       </span>
-      <CardHint>Click to scan this page</CardHint>
     </button>
   );
 }
@@ -243,7 +237,6 @@ function CodeCard(props) {
         <span class="code-line">src: url(…/{snippet.file})</span>
         <span class="code-line">format('woff2');</span>
       </code>
-      <CardHint>Click for the next rule</CardHint>
     </button>
   );
 }

@@ -189,6 +189,10 @@ async fn asset(Path(name): Path<String>) -> Response {
             "image/svg+xml; charset=utf-8",
             include_bytes!("../web/assets/fount-mark.svg"),
         ),
+        "fount-mark-small.svg" => static_bytes(
+            "image/svg+xml; charset=utf-8",
+            include_bytes!("../web/assets/fount-mark-small.svg"),
+        ),
         "fount-mark-mono.svg" => static_bytes(
             "image/svg+xml; charset=utf-8",
             include_bytes!("../web/assets/fount-mark-mono.svg"),
@@ -201,10 +205,6 @@ async fn asset(Path(name): Path<String>) -> Response {
             "text/plain; charset=utf-8",
             include_bytes!("../web/assets/ui-LICENSES.txt"),
         ),
-        "hero.webp" => static_bytes("image/webp", include_bytes!("../web/assets/hero.webp")),
-        "plate.webp" => static_bytes("image/webp", include_bytes!("../web/assets/plate.webp")),
-        "studio.webp" => static_bytes("image/webp", include_bytes!("../web/assets/studio.webp")),
-        "press.webp" => static_bytes("image/webp", include_bytes!("../web/assets/press.webp")),
         "geist-400.woff2" => static_bytes(
             "font/woff2",
             include_bytes!("../web/assets/geist-400.woff2"),

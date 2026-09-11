@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { useStore } from "../store.jsx";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Field } from "../ui/Field.jsx";
-import { Segmented } from "../ui/Segmented.jsx";
 import { Icon } from "../ui/Icon.jsx";
 import { Disclosure } from "../ui/Disclosure.jsx";
 import { Tooltip } from "../ui/Tooltip.jsx";
@@ -11,25 +10,26 @@ const MODES = [
   {
     value: "auto",
     label: "Auto",
-    title: "Start with page source; use the browser if needed",
+    detail: "Reads the page source first and opens a browser only if it has to.",
   },
   {
     value: "static",
     label: "Quick",
-    title: "Find fonts declared in the page source",
+    detail: "Only what the page source declares. Fastest.",
   },
   {
     value: "render",
     label: "Browser",
-    title: "Render the page to find dynamically loaded fonts",
+    detail: "Renders the page to catch fonts loaded by script. Slowest.",
   },
 ];
 
-const EXAMPLES = ["apple.com", "stripe.com", "notion.so", "vercel.com"];
-
 /**
- * The address bar. `compact` is the form once results exist: the same control,
- * without the examples and the explanation that only matter before a scan.
+ * The address bar. One field, one button. The scan method lives behind a
+ * small control inside the field, because on the landing page it is a detail
+ * almost nobody changes and it was competing with the field for attention.
+ * `compact` is the form once results exist: the same control at a smaller
+ * size, with the feedback area still attached.
  */
 export function ScanForm({ compact = false }) {
   const store = useStore();
@@ -77,6 +77,7 @@ export function ScanForm({ compact = false }) {
             setInvalid(false);
             store.patch({ url: event.currentTarget.value });
           }}
+          trailing={<ModeMenu compact={compact} />}
         />
         <Button
           variant="solid"
@@ -90,56 +91,102 @@ export function ScanForm({ compact = false }) {
         </Button>
       </form>
 
-      <div class="scan-row">
-        <Segmented
-          label="Scan method"
-          size="s"
-          options={MODES}
-          value={store.mode}
-          disabled={store.busy}
-          onChange={(mode) => store.patch({ mode })}
-        />
-        {store.scanning ? (
-          <Button variant="text" size="s" onClick={store.cancelScan}>
-            Stop waiting
-          </Button>
-        ) : store.canRetry ? (
-          <Button
-            variant="text"
-            size="s"
-            icon="refresh"
-            onClick={() => store.runScan()}
-          >
-            Retry scan
-          </Button>
-        ) : null}
-      </div>
-
-      {compact ? null : <Examples />}
+      {store.scanning || store.canRetry ? (
+        <div class="scan-row">
+          {store.scanning ? (
+            <Button variant="text" size="s" onClick={store.cancelScan}>
+              Stop waiting
+            </Button>
+          ) : (
+            <Button
+              variant="text"
+              size="s"
+              icon="refresh"
+              onClick={() => store.runScan()}
+            >
+              Retry scan
+            </Button>
+          )}
+        </div>
+      ) : null}
 
       <ScanStatus />
     </div>
   );
 }
 
-function Examples() {
+/**
+ * The scan method, as a menu that opens from the end of the address field.
+ * The trigger shows the current choice by name, so the setting is visible
+ * without being a row of its own.
+ */
+function ModeMenu({ compact }) {
   const store = useStore();
+  const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  const current = MODES.find((m) => m.value === store.mode) || MODES[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (event) => {
+      if (!wrap.current?.contains(event.target)) setOpen(false);
+    };
+    const key = (event) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        wrap.current?.querySelector("button")?.focus();
+      }
+    };
+    addEventListener("pointerdown", away);
+    addEventListener("keydown", key);
+    return () => {
+      removeEventListener("pointerdown", away);
+      removeEventListener("keydown", key);
+    };
+  }, [open]);
+
   return (
-    <div class="examples">
-      <span class="examples-label">Try an example</span>
-      <div class="examples-list">
-        {EXAMPLES.map((site) => (
-          <Button
-            key={site}
-            variant="chip"
-            size="s"
-            disabled={store.busy}
-            onClick={() => store.runScan({ url: `https://${site}` })}
-          >
-            {site}
-          </Button>
-        ))}
-      </div>
+    <div class="mode-menu" ref={wrap}>
+      <button
+        type="button"
+        class={`mode-trigger ${compact ? "is-compact" : ""}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={`Scan method: ${current.label}`}
+        disabled={store.busy}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span>{current.label}</span>
+        <Icon name="chevronDown" size={14} />
+      </button>
+      {open ? (
+        <ul class="mode-list" role="listbox" aria-label="Scan method">
+          {MODES.map((mode) => (
+            <li key={mode.value}>
+              <button
+                type="button"
+                role="option"
+                class="mode-option"
+                aria-selected={mode.value === store.mode}
+                onClick={() => {
+                  store.patch({ mode: mode.value });
+                  setOpen(false);
+                }}
+              >
+                <span class="mode-option-check">
+                  {mode.value === store.mode ? (
+                    <Icon name="check" size={14} />
+                  ) : null}
+                </span>
+                <span class="mode-option-text">
+                  <span class="mode-option-label">{mode.label}</span>
+                  <span class="mode-option-detail">{mode.detail}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }

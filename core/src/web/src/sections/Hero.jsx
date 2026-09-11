@@ -6,15 +6,23 @@ import {
   clearCardPositions,
 } from "../lib/storage.js";
 import { ScanForm } from "./ScanForm.jsx";
+import { MetadataIntro } from "./MetadataIntro.jsx";
 import { SpecimenStage, STAGE_QUERY } from "./SpecimenStage.jsx";
 import { Icon } from "../ui/Icon.jsx";
 import { IconButton } from "../ui/Button.jsx";
+import { Segmented } from "../ui/Segmented.jsx";
 import { Tooltip } from "../ui/Tooltip.jsx";
+
+const TASKS = [
+  { value: "find", label: "Find fonts" },
+  { value: "metadata", label: "Edit metadata" },
+];
 
 /**
  * The whole of the first screen, and deliberately the only thing on it: the
- * claim, the address bar, and specimens to play with. Everything that explains
- * or qualifies the product lives further down the page.
+ * claim, a switch between the two things Fount does, the control for the
+ * chosen one, and specimens to play with. Everything that explains or
+ * qualifies the product lives further down the page.
  *
  * The hero also owns the specimen arrangement, because the control that puts a
  * moved card back belongs next to the scroll cue rather than inside the stage.
@@ -22,6 +30,7 @@ import { Tooltip } from "../ui/Tooltip.jsx";
 export function Hero() {
   const ref = useRef(null);
   const wide = useMediaQuery(STAGE_QUERY);
+  const [task, setTask] = useState("find");
   const [moved, setMoved] = useState(
     () => wide && Object.keys(cardPositions()).length > 0,
   );
@@ -61,18 +70,51 @@ export function Hero() {
       {/* The stage follows the copy in the DOM so the address field is reached
           before four specimen cards. Its position is set by CSS either way. */}
       <div class="hero-copy">
-        <h1 class="hero-title" id="hero-title" data-enter>
-          Find the fonts
-          <br />
-          <em>behind</em> any website.
-        </h1>
-        <p class="hero-lede" data-enter>
-          Paste an address. Fount reads the page, groups what it finds into
-          families, and hands you clean TTF or OTF files.
-        </p>
-        <div data-enter>
-          <ScanForm />
+        <div class="hero-switch" data-enter>
+          <Segmented
+            label="What to do"
+            size="m"
+            options={TASKS}
+            value={task}
+            onChange={setTask}
+          />
         </div>
+        <h1 class="hero-title" id="hero-title" data-enter>
+          {task === "find" ? (
+            <>
+              Find the fonts
+              <br />
+              <em>behind</em> any website.
+            </>
+          ) : (
+            <>
+              Give a font file
+              <br />
+              its <em>proper</em> name.
+            </>
+          )}
+        </h1>
+        {task === "find" ? (
+          <>
+            <p class="hero-lede" data-enter>
+              Paste an address. Fount reads the page, groups what it finds
+              into families, and hands you clean TTF or OTF files.
+            </p>
+            <div class="hero-control" data-enter>
+              <ScanForm />
+            </div>
+          </>
+        ) : (
+          <>
+            <p class="hero-lede" data-enter>
+              Fix the family, style and internal names of a TTF or OTF so it
+              installs and lists the way it should.
+            </p>
+            <div class="hero-control" data-enter>
+              <MetadataIntro />
+            </div>
+          </>
+        )}
       </div>
 
       <SpecimenStage

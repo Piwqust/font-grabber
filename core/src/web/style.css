@@ -83,6 +83,7 @@
   --gutter: clamp(1.25rem, 5vw, 4.5rem);
   --measure: 74rem;
   --preview-size: 32px;
+  --header-h: 3.75rem;
 }
 
 /* The dark palette applies in two cases: the system asks for it and nothing
@@ -149,7 +150,7 @@
 }
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 6rem;
+  scroll-padding-top: calc(var(--header-h) + 1.5rem);
   -webkit-text-size-adjust: 100%;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -240,6 +241,15 @@ code {
   stroke-linecap: round;
   stroke-linejoin: round;
   flex: 0 0 auto;
+}
+/* The brand mark is inline SVG so the letter follows the text colour; only
+   the fold keeps its own colour, and that colour comes from the theme. */
+.mark {
+  flex: 0 0 auto;
+  color: var(--ink);
+}
+.mark-fold {
+  fill: var(--accent);
 }
 
 /* --- Utilities ------------------------------------------------------------ */
@@ -917,16 +927,16 @@ code {
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 1.1rem var(--gutter);
+  /* One height, always. A header that shrinks on scroll changes the document
+     height under the scroll position and the page shakes at the threshold. */
+  height: var(--header-h);
+  padding: 0 var(--gutter);
   background: color-mix(in srgb, var(--page) 82%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid transparent;
-  transition:
-    padding 0.24s var(--ease),
-    border-color 0.24s var(--ease);
+  transition: border-color 0.24s var(--ease);
 }
 .site-header[data-condensed="true"] {
-  padding-block: 0.65rem;
   border-bottom-color: var(--line);
 }
 .wordmark {
@@ -936,12 +946,10 @@ code {
   font: 400 1.35rem/1 var(--serif);
   letter-spacing: -0.01em;
 }
-.wordmark img {
-  width: 28px;
-  height: 28px;
+.wordmark .mark {
   transition: transform 0.4s var(--ease);
 }
-.wordmark:hover img {
+.wordmark:hover .mark {
   transform: rotate(-8deg);
 }
 .header-nav {
@@ -958,7 +966,8 @@ code {
     color 0.16s var(--ease),
     border-color 0.16s var(--ease);
 }
-.header-nav a:hover {
+.header-nav a:hover,
+.header-nav a[aria-current="true"] {
   color: var(--ink);
   border-bottom-color: var(--ink);
 }
@@ -1065,6 +1074,19 @@ code {
   gap: 1.4rem;
   width: 100%;
   max-width: 46rem;
+  /* Above the strip cards, so a menu opened from the address field is not
+     covered by them. The scattered stage sits higher (z-index 3) and keeps
+     its cards in front on wide screens, as intended. */
+  position: relative;
+  z-index: 2;
+}
+.hero-switch {
+  margin-bottom: 0.2rem;
+}
+.hero-control {
+  width: 100%;
+  display: grid;
+  justify-items: center;
 }
 .hero-title {
   font: 400 clamp(2.7rem, 7.2vw, 5.1rem) / 1.04 var(--serif);
@@ -1135,24 +1157,136 @@ code {
   flex-wrap: wrap;
   justify-content: center;
 }
-.examples {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-  justify-content: center;
+
+/* The scan method, as a small menu at the end of the address field. */
+.mode-menu {
+  position: relative;
+  flex: 0 0 auto;
+  margin-right: -0.5rem;
 }
-.examples-label {
-  font: 400 11px/1 var(--mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+.mode-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.3rem 0.45rem 0.3rem 0.6rem;
+  border-radius: var(--radius-pill);
+  font: 400 12.5px/1 var(--sans);
+  color: var(--muted);
+  white-space: nowrap;
+  transition:
+    color 0.16s var(--ease),
+    background-color 0.16s var(--ease);
+}
+.mode-trigger:hover:not(:disabled),
+.mode-trigger[aria-expanded="true"] {
+  color: var(--ink);
+  background: var(--surface-sunk);
+}
+.mode-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.mode-trigger.is-compact {
+  font-size: 12px;
+  padding-block: 0.2rem;
+}
+.mode-trigger .icon {
+  transition: transform 0.2s var(--ease);
+}
+.mode-trigger[aria-expanded="true"] .icon {
+  transform: rotate(180deg);
+}
+.mode-list {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 30;
+  width: 17rem;
+  padding: 0.35rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  text-align: left;
+  animation: menu-in 0.16s var(--ease);
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mode-list {
+    animation: none;
+  }
+}
+.mode-option {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-s);
+  text-align: left;
+  transition: background-color 0.14s var(--ease);
+}
+.mode-option:hover,
+.mode-option:focus-visible {
+  background: var(--surface-sunk);
+}
+.mode-option-check {
+  display: grid;
+  place-items: center;
+  height: 1.25rem;
+  color: var(--ink);
+}
+.mode-option-text {
+  display: grid;
+  gap: 0.1rem;
+}
+.mode-option-label {
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.mode-option[aria-selected="true"] .mode-option-label {
+  font-weight: 500;
+}
+.mode-option-detail {
+  font-size: 12px;
+  line-height: 1.4;
   color: var(--muted);
 }
-.examples-list {
-  display: flex;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  justify-content: center;
+
+/* The metadata entry point: the same footprint as the address bar. */
+.metadata-intro {
+  width: 100%;
+  max-width: 34rem;
+}
+.metadata-drop {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  padding: 1.6rem 1.5rem 1.4rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-l);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+.metadata-drop-mark {
+  color: var(--muted);
+}
+.metadata-drop-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+.metadata-drop-note {
+  max-width: 24rem;
+  font-size: 13px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.metadata-drop .btn {
+  margin-top: 0.5rem;
 }
 .scan-feedback {
   display: grid;
@@ -1295,31 +1429,6 @@ code {
   opacity: var(--sheen-opacity, 0);
   transition: opacity 0.3s var(--ease);
   pointer-events: none;
-}
-.card-hint {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.3rem;
-  padding: 0.4rem;
-  background: color-mix(in srgb, var(--ink) 88%, transparent);
-  color: var(--page);
-  font: 400 10.5px/1 var(--mono);
-  letter-spacing: 0.06em;
-  opacity: 0;
-  transform: translateY(100%);
-  transition:
-    opacity 0.2s var(--ease),
-    transform 0.2s var(--ease);
-}
-.card:hover .card-hint,
-.card:focus-visible .card-hint {
-  opacity: 1;
-  transform: none;
 }
 .card-glyph {
   /* Leading is generous enough for descenders; these are real specimens and a
@@ -1834,7 +1943,7 @@ code {
 /* --- Toolbar -------------------------------------------------------------- */
 .toolbar {
   position: sticky;
-  top: 4.25rem;
+  top: var(--header-h);
   z-index: 20;
   display: grid;
   gap: 0.6rem;
@@ -2311,7 +2420,7 @@ code {
     width: 100%;
   }
   .toolbar {
-    top: 3.6rem;
+    top: var(--header-h);
   }
   .toolbar-search {
     max-width: none;
