@@ -1,0 +1,14 @@
+{
+  "dependencies": {
+    "motion": "13.2.0",
+    "playwright": "^1.63.0",
+    "preact": "10.28.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "scripts": {
+    "build:ui": "node scripts/build-ui.cjs",
+    "dev:ui": "node scripts/build-ui.cjs --watch"
+  }
+}

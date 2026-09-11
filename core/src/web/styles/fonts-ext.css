@@ -1,0 +1,32 @@
+/* The same three faces as the website, loaded from the extension bundle.
+   Only the paths differ, which is why this file exists separately. */
+@font-face {
+  font-family: Geist;
+  src: url("fonts/geist-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: Geist;
+  src: url("fonts/geist-600.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Plex Mono";
+  src: url("fonts/plex-mono-400.woff2") format("woff2");
+  font-display: swap;
+}
+@font-face {
+  font-family: Newsreader;
+  src: url("fonts/newsreader-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: Newsreader;
+  src: url("fonts/newsreader-400i.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}

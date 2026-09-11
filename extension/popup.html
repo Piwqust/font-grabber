@@ -1,44 +1,18 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <link rel="stylesheet" href="popup.css">
-</head>
-<body>
-  <header class="topbar">
-    <span class="brand">Fount</span>
-    <span id="origin" class="origin"></span>
-  </header>
-
-  <div class="controls">
-    <input id="filter" type="search" placeholder="Filter by name or file" autocomplete="off">
-    <div class="row">
-      <input id="sample" type="text" value="The quick brown fox" autocomplete="off">
-      <input id="size" type="range" min="12" max="64" value="30" title="Preview size">
-    </div>
-    <div class="row actions-row">
-      <button id="select-all" class="txt-btn" type="button">All</button>
-      <button id="select-none" class="txt-btn" type="button">None</button>
-      <button id="rename-family" class="txt-btn" type="button">Rename family</button>
-      <span id="count" class="count"></span>
-    </div>
-  </div>
-
-  <main id="font-list" class="specimens">
-    <p id="empty" class="empty">Scanning this page…</p>
-  </main>
-
-  <footer class="grab-bar">
-    <span id="status" class="status"></span>
-    <div class="actions">
-      <button id="grab-files" class="ghost" type="button" disabled>Save files</button>
-      <button id="grab-zip" class="primary" type="button" disabled>Download ZIP</button>
-    </div>
-  </footer>
-
-  <script src="zip.js"></script>
-  <script src="convert.js"></script>
-  <script src="discover.js"></script>
-  <script src="popup.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fount — Page fonts</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Classic scripts first: they define the FontConverter, Zip and
+         collectFontsInPage globals that the bundled popup calls into. -->
+    <script src="zip.js"></script>
+    <script src="convert.js"></script>
+    <script src="discover.js"></script>
+    <script src="popup.bundle.js"></script>
+  </body>
 </html>

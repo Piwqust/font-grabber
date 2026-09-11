@@ -1,0 +1,43 @@
+/* --- Fonts ---------------------------------------------------------------- */
+@font-face {
+  font-family: Geist;
+  src: url("/assets/geist-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: Geist;
+  src: url("/assets/geist-600.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: Geist;
+  src: url("/assets/geist-800.woff2") format("woff2");
+  font-weight: 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: Newsreader;
+  src: url("/assets/newsreader-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: Newsreader;
+  src: url("/assets/newsreader-400i.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: Newsreader;
+  src: url("/assets/newsreader-700.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Plex Mono";
+  src: url("/assets/plex-mono-400.woff2") format("woff2");
+  font-display: swap;
+}

@@ -18,7 +18,30 @@ pub struct CollectorResult {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScanStage {
+    PageSource,
+    Browser,
+    Organizing,
+}
+pub type Progress = std::sync::Arc<dyn Fn(ScanStage) + Send + Sync>;
+
 pub async fn scan(request: &ScanRequest, logger: Option<Logger>) -> Result<ScanReport> {
+    scan_with_progress(request, logger, None).await
+}
+
+pub async fn scan_with_progress(
+    request: &ScanRequest,
+    logger: Option<Logger>,
+    progress: Option<Progress>,
+) -> Result<ScanReport> {
+    let stage = |value| {
+        if let Some(callback) = &progress {
+            callback(value);
+        }
+    };
+    stage(ScanStage::PageSource);
     emit_log(logger.as_ref(), format!("Scanning {}", request.page_url));
 
     let mut warnings = Vec::new();
@@ -36,6 +59,7 @@ pub async fn scan(request: &ScanRequest, logger: Option<Logger>) -> Result<ScanR
     let mut fonts = static_result.fonts;
 
     if request.mode.should_collect_browser() {
+        stage(ScanStage::Browser);
         match headless::discover(&request.page_url, logger.clone()).await {
             Ok(browser_result) => {
                 fonts = parser::merge_fonts(fonts, browser_result.fonts);
@@ -53,6 +77,7 @@ pub async fn scan(request: &ScanRequest, logger: Option<Logger>) -> Result<ScanR
         }
     }
 
+    stage(ScanStage::Organizing);
     if request.enrich_scripts {
         warnings.extend(enrich_font_scripts(&mut fonts, &request.page_url, logger.clone()).await);
     } else {

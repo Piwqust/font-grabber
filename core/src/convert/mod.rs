@@ -44,6 +44,7 @@ const SCRIPT_PROBES: &[(FontScript, &[char])] = &[
 pub struct ConversionBatch {
     pub converted: Vec<ConvertedFont>,
     pub failures: Vec<String>,
+    pub failure_details: Vec<(String, String)>,
 }
 
 pub fn convert_fonts(
@@ -53,6 +54,7 @@ pub fn convert_fonts(
 ) -> Result<ConversionBatch> {
     let mut converted = Vec::new();
     let mut failures = Vec::new();
+    let mut failure_details = Vec::new();
 
     for (index, cached) in cached_fonts.iter().enumerate() {
         emit_log(
@@ -68,16 +70,20 @@ pub fn convert_fonts(
         let draft = drafts.and_then(|map| map.get(&cached.info.id));
         match convert_font(cached, draft) {
             Ok(font) => converted.push(font),
-            Err(error) => failures.push(format!(
-                "{} ({} {}): {error}",
-                cached.info.family, cached.info.weight, cached.info.style
-            )),
+            Err(error) => {
+                failure_details.push((cached.info.id.clone(), error.to_string()));
+                failures.push(format!(
+                    "{} ({} {}): {error}",
+                    cached.info.family, cached.info.weight, cached.info.style
+                ));
+            }
         }
     }
 
     Ok(ConversionBatch {
         converted,
         failures,
+        failure_details,
     })
 }
 

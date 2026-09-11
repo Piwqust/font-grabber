@@ -1,0 +1,198 @@
+/* Popup-specific layout. Tokens and components come from the shared
+   stylesheets, so a button here is the same button as on the website. */
+
+body {
+  width: 400px;
+  height: 600px;
+  overflow: hidden;
+  font-size: 14px;
+}
+/* The app renders into #root, so that is the element that has to carry the
+   four-row layout — head, controls, scrolling list, footer. */
+#root {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: 100%;
+}
+
+/* --- Head ----------------------------------------------------------------- */
+.pop-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+.pop-brand {
+  flex: 1;
+  min-width: 0;
+}
+.pop-wordmark {
+  display: block;
+  font: 400 1.25rem/1.1 var(--serif);
+  letter-spacing: -0.01em;
+}
+.pop-origin {
+  display: block;
+  font: 400 11px/1.4 var(--mono);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Controls ------------------------------------------------------------- */
+.pop-controls {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+.pop-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.pop-count {
+  margin-left: auto;
+  font: 400 11px/1 var(--mono);
+  color: var(--muted);
+}
+.pop-actions {
+  gap: 0.25rem 0.6rem;
+}
+.pop-preview .disclosure-summary {
+  padding-block: 0.5rem;
+  font-size: 13px;
+  color: var(--muted);
+}
+.pop-preview .disclosure-body {
+  display: grid;
+  gap: 0.6rem;
+  justify-items: start;
+}
+
+/* --- List ----------------------------------------------------------------- */
+.pop-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.6rem 0.9rem;
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+}
+.pop-face {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  cursor: pointer;
+  transition:
+    border-color 0.16s var(--ease),
+    background-color 0.16s var(--ease);
+}
+.pop-face:hover {
+  border-color: var(--line-strong);
+}
+.pop-face[data-selected="true"] {
+  border-color: var(--ink);
+}
+.pop-face-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+.pop-face-id {
+  flex: 1;
+  min-width: 0;
+}
+.pop-face-id h3 {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.pop-face-id span,
+.pop-face-format {
+  font: 400 10.5px/1.4 var(--mono);
+  color: var(--muted);
+}
+.pop-face-format {
+  flex: 0 0 auto;
+}
+.pop-face-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+.pop-face .preview {
+  /* The popup is narrow: a long specimen must wrap rather than push the row. */
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+.pop-more {
+  justify-self: center;
+  margin-top: 0.5rem;
+}
+.pop-empty {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: center;
+  padding: 3rem 1rem;
+  text-align: center;
+}
+.pop-empty-mark {
+  font: 400 2.75rem/1 var(--serif);
+  color: var(--line-strong);
+}
+.pop-empty h2 {
+  font: 400 1.2rem/1.2 var(--serif);
+}
+.pop-empty p {
+  font-size: 13px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+/* --- Foot ----------------------------------------------------------------- */
+.pop-foot {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.pop-selection {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+}
+.pop-download {
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+}
+.pop-progress {
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunk);
+  overflow: hidden;
+}
+.pop-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+  transition: width 0.2s var(--ease);
+}
+.pop-foot .status {
+  font-size: 12px;
+}
+.pop-failures {
+  display: grid;
+  gap: 0.25rem;
+  max-height: 7rem;
+  overflow-y: auto;
+  margin-bottom: 0.5rem;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

@@ -56,7 +56,12 @@ to convert.
 | File | Purpose |
 |------|---------|
 | `manifest.json` | MV3 manifest (permissions, CSP with `wasm-unsafe-eval`) |
-| `popup.html` / `popup.css` / `popup.js` | The popup UI and orchestration |
+| `popup.html` | The popup shell — `#root` plus the classic scripts below |
+| `src/popup.jsx` | The popup UI, built from the shared component library in `core/src/web/src/ui/` |
+| `src/engine.js` | Chrome, font bytes, conversion and downloads — everything that is not rendering |
+| `src/previews.js` | Lazy preview loading from the engine's byte cache |
+| `popup.src.css` | Popup layout only; tokens and components are shared with the website |
+| `popup.bundle.js` / `popup.css` | Build outputs — run `npm run build:ui`, never edit by hand |
 | `background.js` | Service worker: records font responses per tab via `webRequest` |
 | `capture.js` | `document_start` MAIN-world hook for `FontFace`/`fetch` (shared with the CLI/web app) |
 | `discover.js` | The page font collector — **shared** with the Rust CLI/web app (`core` `include_str!`s it) |

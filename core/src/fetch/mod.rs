@@ -14,6 +14,7 @@ use crate::{
 pub struct DownloadBatch {
     pub cached: Vec<CachedFont>,
     pub failures: Vec<String>,
+    pub failure_details: Vec<(String, String)>,
 }
 
 pub async fn download_fonts(
@@ -51,13 +52,17 @@ pub async fn download_fonts(
 
     let mut cached = Vec::new();
     let mut failures = Vec::new();
+    let mut failure_details = Vec::new();
     let mut browser_retry = Vec::new();
 
     for (_, font, result) in results {
         match result {
             Ok(cached_font) => cached.push(cached_font),
             Err(http_error) if allow_browser_fallback => browser_retry.push((font, http_error)),
-            Err(http_error) => failures.push(failure_line(&font, http_error)),
+            Err(http_error) => {
+                failure_details.push((font.id.clone(), http_error.clone()));
+                failures.push(failure_line(&font, http_error));
+            }
         }
     }
 
@@ -94,10 +99,11 @@ pub async fn download_fonts(
             let http_error = http_errors.get(index).cloned().unwrap_or_default();
             match result {
                 Ok(cached_font) => cached.push(cached_font),
-                Err(browser_error) => failures.push(failure_line(
-                    &font,
-                    format!("http: {http_error}; browser: {browser_error}"),
-                )),
+                Err(browser_error) => {
+                    let detail = format!("http: {http_error}; browser: {browser_error}");
+                    failure_details.push((font.id.clone(), detail.clone()));
+                    failures.push(failure_line(&font, detail));
+                }
             }
         }
     }
@@ -111,7 +117,11 @@ pub async fn download_fonts(
             .then_with(|| left.info.style.cmp(&right.info.style))
     });
 
-    Ok(DownloadBatch { cached, failures })
+    Ok(DownloadBatch {
+        cached,
+        failures,
+        failure_details,
+    })
 }
 
 fn failure_line(font: &FontCandidate, detail: impl Into<String>) -> String {

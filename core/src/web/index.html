@@ -1,141 +1,115 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Fount — the type from any page</title>
-  <meta name="description" content="Paste a link. Fount reads the page, finds every face, and hands you the fonts — clean, renamed, yours.">
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="preload" href="/assets/hero.webp" as="image">
-  <link rel="preload" href="/assets/newsreader-400.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/assets/newsreader-400i.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/assets/geist-400.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/style.css">
-</head>
-<body data-hosted="__FOUNT_HOSTED__">
-  <a class="skip" href="#scan">Skip to scan</a>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Fount — Find your type</title>
+    <meta
+      name="description"
+      content="Discover the fonts behind any website, compare live previews and download the faces you choose as clean TTF or OTF files."
+    />
+    <meta
+      name="theme-color"
+      content="#fbfbfa"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#0c0c0e"
+      media="(prefers-color-scheme: dark)"
+    />
 
-  <header class="hero" id="top">
-    <img class="hero-photo" src="/assets/hero.webp" alt="" width="1280" height="720">
-    <div class="hero-scrim" aria-hidden="true"></div>
+    <!-- Link previews for the hosted edition. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Fount" />
+    <meta property="og:title" content="Fount — Find your type" />
+    <meta
+      property="og:description"
+      content="Discover the fonts behind any website, compare live previews and download the faces you choose as clean TTF or OTF files."
+    />
+    <meta property="og:image" content="/assets/fount-logo.svg" />
+    <meta property="og:image:alt" content="The Fount wordmark" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Fount — Find your type" />
+    <meta
+      name="twitter:description"
+      content="Discover the fonts behind any website, compare live previews and download the faces you choose as clean TTF or OTF files."
+    />
+    <meta name="twitter:image" content="/assets/fount-logo.svg" />
 
-    <nav class="nav" aria-label="Primary">
-      <div class="nav-stack">
-        <a href="#scan">Scan</a>
-        <a href="#results">Index</a>
-        <a href="#extension">Extension</a>
-      </div>
-      <div class="nav-end">
-        <span id="edition-label" class="tag">Local</span>
-        <a href="https://github.com/Piwqust/font-grabber" rel="noopener">GitHub&nbsp;&#8599;</a>
-      </div>
-    </nav>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
-    <p class="hero-chip" aria-hidden="true">FOUNT<sup>&reg;</sup></p>
-
-    <div class="hero-copy" id="scan">
-      <h1>Every <em>typeface</em>, from any page.</h1>
-      <form id="scan-form" class="scan">
-        <label class="sr-only" for="url">Website URL</label>
-        <input id="url" class="scan-input" type="text" placeholder="https://grillitype.com" autocomplete="off" spellcheck="false" required>
-        <select id="mode" class="scan-mode" title="Discovery strategy" aria-label="Discovery strategy">
-          <option value="auto">Auto</option>
-          <option value="static">Static</option>
-          <option value="render">Render</option>
-        </select>
-        <button id="scan-btn" class="scan-go" type="submit">Scan</button>
-      </form>
-      <p class="scan-hint tag">Paste a URL — the index builds itself below.</p>
-      <p id="scan-status" class="status" role="status"></p>
-      <div id="warnings" class="warnings" hidden></div>
-    </div>
-
-    <p class="scroll-hint tag" aria-hidden="true">{Scroll}</p>
-  </header>
-
-  <section class="statement">
-    <p class="statement-copy">Paste a link. Fount reads the page, finds <em>every face</em>, and hands you the fonts — clean, renamed, <em>yours</em>.</p>
-    <div class="statement-meta">
-      <span class="tag">Local edition</span>
-      <span class="tag">&#10010;&nbsp;No cloud</span>
-      <span class="tag">&#10010;&nbsp;Zip output</span>
-      <span class="tag">&#10010;&nbsp;Name repair</span>
-    </div>
-  </section>
-
-  <section class="split" id="extension">
-    <article class="split-cell">
-      <span class="split-no tag">01</span>
-      <h2>Web</h2>
-      <p>Scan a foundry. Preview every face as itself. Save a clean ZIP on this machine.</p>
-      <figure class="split-media"><img src="/assets/studio.webp" alt="A studio monitor showing large letterforms" width="1152" height="864"></figure>
-    </article>
-    <article class="split-cell">
-      <span class="split-no tag">02</span>
-      <h2>Extension</h2>
-      <p>Same engine, on the tab you already have open. Convert WOFF2 in the browser.</p>
-      <figure class="split-media"><img src="/assets/press.webp" alt="Letterpress type and red ink on a steel bed" width="1280" height="720"></figure>
-    </article>
-  </section>
-
-  <section id="results" class="results" hidden aria-label="Specimen index">
-    <header class="index-head">
-      <span class="tag index-title">Specimen index</span>
-      <span id="masthead-count" class="tag">No faces yet</span>
-    </header>
-
-    <div class="controls">
-      <label class="ctl grow">
-        <span class="ctl-label">Sample</span>
-        <input id="sample" type="text" value="Whereas recognition of the inherent dignity" autocomplete="off">
-      </label>
-      <div class="ctl">
-        <span class="ctl-label">Size</span>
-        <div class="size-row">
-          <input id="size" type="range" min="14" max="120" value="44">
-          <span id="size-value" class="size-val">44</span>
-        </div>
-      </div>
-      <label class="ctl">
-        <span class="ctl-label">Filter</span>
-        <input id="filter" type="search" placeholder="name or file" autocomplete="off">
-      </label>
-      <label class="ctl grow" id="bulk-family-ctl" hidden>
-        <span class="ctl-label">Family for selected</span>
-        <input id="bulk-family" type="text" placeholder="GT Eesti" autocomplete="off">
-      </label>
-      <div class="ctl-actions">
-        <button id="select-all" class="txt-btn" type="button">All</button>
-        <button id="select-none" class="txt-btn" type="button">None</button>
-        <span id="count" class="count tag"></span>
+    <!--
+      The saved theme is applied before the first paint. Doing this from the
+      bundle would show one frame of the wrong palette.
+    -->
+    <script>
+      try {
+        var saved = localStorage.getItem("fount-theme");
+        if (saved === "dark" || saved === "light")
+          document.documentElement.setAttribute("data-theme", saved);
+      } catch (error) {
+        /* Storage can be blocked; the system preference still applies. */
+      }
+    </script>
+    <link
+      rel="preload"
+      href="/assets/geist-400.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/assets/geist-600.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/assets/newsreader-400.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body data-hosted="__FOUNT_HOSTED__">
+    <!--
+      The shell paints the headline before the bundle runs, so the first frame is
+      the page rather than an empty box. main.jsx clears it and mounts the app.
+    -->
+    <div id="root">
+      <div class="boot">
+        <h1 class="hero-title">
+          Find the fonts<br /><em>behind</em> any website.
+        </h1>
+        <p class="hero-lede">
+          Paste an address. Fount reads the page, groups what it finds into
+          families, and hands you clean TTF or OTF files.
+        </p>
       </div>
     </div>
-
-    <div id="font-list" class="specimens"></div>
-  </section>
-
-  <footer id="grab-bar" class="site-foot">
-    <p class="foot-wordmark" aria-hidden="true">FOUNT</p>
-    <div class="foot-row">
-      <div class="foot-meta">
-        <span id="edition-foot" class="tag">Local edition</span>
-        <a href="https://github.com/Piwqust/font-grabber" rel="noopener">GitHub&nbsp;&#8599;</a>
-      </div>
-    </div>
-  </footer>
-
-  <div id="grab-tools" class="actionbar" hidden>
-    <span id="selected-count" class="selected-count tag">0 selected</span>
-    <fieldset class="seg">
-      <legend class="sr-only">Delivery</legend>
-      <label><input type="radio" name="delivery" value="zip" checked><span>Zip</span></label>
-      <label class="local-only"><input type="radio" name="delivery" value="folder"><span>Folder</span></label>
-    </fieldset>
-    <input id="output-dir" class="dir-input" type="text" placeholder="output folder — blank = ./fonts/domain" hidden>
-    <button id="grab-btn" class="grab-go" type="button" disabled>Keep</button>
-    <span id="grab-status" class="grab-status" role="status"></span>
-  </div>
-
-  <script src="/app.js"></script>
-</body>
+    <noscript>
+      <p style="padding: 2rem; text-align: center">
+        Fount needs JavaScript to scan a page and preview the fonts it finds.
+      </p>
+    </noscript>
+    <style>
+      .boot {
+        display: grid;
+        justify-items: center;
+        gap: 1.4rem;
+        min-height: 80vh;
+        align-content: center;
+        padding: 4rem 1.5rem;
+        text-align: center;
+      }
+    </style>
+    <script src="/app.js" defer></script>
+  </body>
 </html>

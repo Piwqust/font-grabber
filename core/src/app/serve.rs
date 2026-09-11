@@ -1,8 +1,11 @@
+mod workflow;
+
 use std::{
     collections::{HashMap, HashSet},
     io::Write,
     path::PathBuf,
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
@@ -25,6 +28,20 @@ use crate::{
     support::{default_output_dir, http::build_http_client, normalize_url, validate_public_url},
 };
 
+/// A cached scan and when it was taken. In hosted mode this map grows with every
+/// site anyone scans, so entries have to expire rather than accumulate.
+struct CachedScan {
+    report: ScanReport,
+    created: Instant,
+}
+
+/// How long a cached scan is worth reusing for a follow-up export.
+const SCAN_TTL: Duration = Duration::from_secs(30 * 60);
+/// A ceiling for the map, so a burst of scans cannot outrun the TTL sweep.
+const SCAN_LIMIT: usize = 64;
+
+type ScanCache = HashMap<String, CachedScan>;
+
 /// Shared server state. Scan results are cached per (mode, url) so a follow-up grab
 /// reuses the discovered candidates instead of re-scanning the page.
 #[derive(Clone)]
@@ -32,7 +49,47 @@ struct AppState {
     webdriver_url: String,
     concurrency: usize,
     hosted: bool,
-    scans: Arc<Mutex<HashMap<String, ScanReport>>>,
+    scans: Arc<Mutex<ScanCache>>,
+    exports: Arc<Mutex<HashMap<String, workflow::Archive>>>,
+}
+
+/// Drops everything past the TTL, then the oldest entries above the cap.
+fn prune_scans(scans: &mut ScanCache) {
+    scans.retain(|_, scan| scan.created.elapsed() < SCAN_TTL);
+    while scans.len() > SCAN_LIMIT {
+        let Some(oldest) = scans
+            .iter()
+            .min_by_key(|(_, scan)| scan.created)
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        scans.remove(&oldest);
+    }
+}
+
+/// Caches a scan under `key` and keeps the map within its bounds.
+async fn remember_scan(state: &AppState, key: String, report: ScanReport) {
+    let mut scans = state.scans.lock().await;
+    scans.insert(
+        key,
+        CachedScan {
+            report,
+            created: Instant::now(),
+        },
+    );
+    prune_scans(&mut scans);
+}
+
+/// Sweeps expired scans on a timer, the way `workflow::start_cleanup` does for
+/// archives — a server that is never asked for another scan still lets go.
+fn start_scan_cleanup(scans: Arc<Mutex<ScanCache>>) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            prune_scans(&mut *scans.lock().await);
+        }
+    });
 }
 
 pub async fn run(args: ServeArgs) -> Result<()> {
@@ -41,8 +98,11 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         concurrency: args.concurrency,
         hosted: args.hosted,
         scans: Arc::new(Mutex::new(HashMap::new())),
+        exports: Arc::new(Mutex::new(HashMap::new())),
     };
 
+    workflow::start_cleanup(state.exports.clone());
+    start_scan_cleanup(state.scans.clone());
     let app = Router::new()
         .route("/", get(index))
         .route("/style.css", get(style))
@@ -51,6 +111,9 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         .route("/assets/:name", get(asset))
         .route("/api/scan", post(scan))
         .route("/api/grab", post(grab))
+        .route("/api/export", post(workflow::export))
+        .route("/api/export/:id", get(workflow::archive))
+        .route("/api/coverage", post(workflow::coverage))
         .route("/api/font", get(font_proxy))
         .with_state(state);
 
@@ -109,35 +172,67 @@ async fn script() -> impl IntoResponse {
             header::CONTENT_TYPE,
             "application/javascript; charset=utf-8",
         )],
-        include_str!("../web/app.js"),
+        include_str!("../web/assets/app.js"),
     )
 }
 
 async fn favicon() -> Response {
-    static_bytes("image/svg+xml; charset=utf-8", include_bytes!("../web/favicon.svg"))
+    static_bytes(
+        "image/svg+xml; charset=utf-8",
+        include_bytes!("../web/favicon.svg"),
+    )
 }
 
 async fn asset(Path(name): Path<String>) -> Response {
     match name.as_str() {
+        "fount-mark.svg" => static_bytes(
+            "image/svg+xml; charset=utf-8",
+            include_bytes!("../web/assets/fount-mark.svg"),
+        ),
+        "fount-mark-mono.svg" => static_bytes(
+            "image/svg+xml; charset=utf-8",
+            include_bytes!("../web/assets/fount-mark-mono.svg"),
+        ),
+        "fount-logo.svg" => static_bytes(
+            "image/svg+xml; charset=utf-8",
+            include_bytes!("../web/assets/fount-logo.svg"),
+        ),
+        "ui-LICENSES.txt" => static_bytes(
+            "text/plain; charset=utf-8",
+            include_bytes!("../web/assets/ui-LICENSES.txt"),
+        ),
         "hero.webp" => static_bytes("image/webp", include_bytes!("../web/assets/hero.webp")),
         "plate.webp" => static_bytes("image/webp", include_bytes!("../web/assets/plate.webp")),
         "studio.webp" => static_bytes("image/webp", include_bytes!("../web/assets/studio.webp")),
         "press.webp" => static_bytes("image/webp", include_bytes!("../web/assets/press.webp")),
-        "geist-400.woff2" => static_bytes("font/woff2", include_bytes!("../web/assets/geist-400.woff2")),
-        "geist-600.woff2" => static_bytes("font/woff2", include_bytes!("../web/assets/geist-600.woff2")),
-        "geist-800.woff2" => static_bytes("font/woff2", include_bytes!("../web/assets/geist-800.woff2")),
-        "newsreader-400.woff2" => {
-            static_bytes("font/woff2", include_bytes!("../web/assets/newsreader-400.woff2"))
-        }
-        "newsreader-400i.woff2" => {
-            static_bytes("font/woff2", include_bytes!("../web/assets/newsreader-400i.woff2"))
-        }
-        "newsreader-700.woff2" => {
-            static_bytes("font/woff2", include_bytes!("../web/assets/newsreader-700.woff2"))
-        }
-        "plex-mono-400.woff2" => {
-            static_bytes("font/woff2", include_bytes!("../web/assets/plex-mono-400.woff2"))
-        }
+        "geist-400.woff2" => static_bytes(
+            "font/woff2",
+            include_bytes!("../web/assets/geist-400.woff2"),
+        ),
+        "geist-600.woff2" => static_bytes(
+            "font/woff2",
+            include_bytes!("../web/assets/geist-600.woff2"),
+        ),
+        "geist-800.woff2" => static_bytes(
+            "font/woff2",
+            include_bytes!("../web/assets/geist-800.woff2"),
+        ),
+        "newsreader-400.woff2" => static_bytes(
+            "font/woff2",
+            include_bytes!("../web/assets/newsreader-400.woff2"),
+        ),
+        "newsreader-400i.woff2" => static_bytes(
+            "font/woff2",
+            include_bytes!("../web/assets/newsreader-400i.woff2"),
+        ),
+        "newsreader-700.woff2" => static_bytes(
+            "font/woff2",
+            include_bytes!("../web/assets/newsreader-700.woff2"),
+        ),
+        "plex-mono-400.woff2" => static_bytes(
+            "font/woff2",
+            include_bytes!("../web/assets/plex-mono-400.woff2"),
+        ),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -164,6 +259,8 @@ fn static_bytes(content_type: &'static str, body: &'static [u8]) -> Response {
 struct ScanBody {
     url: String,
     #[serde(default)]
+    stream: bool,
+    #[serde(default)]
     mode: Option<String>,
 }
 
@@ -187,13 +284,12 @@ async fn scan(State(state): State<AppState>, Json(body): Json<ScanBody>) -> Resp
         enrich_scripts: false,
     };
 
+    if body.stream {
+        return workflow::scan_stream(state, request);
+    }
     match discovery::scan(&request, None).await {
         Ok(report) => {
-            state
-                .scans
-                .lock()
-                .await
-                .insert(cache_key(mode, &request.page_url), report.clone());
+            remember_scan(&state, cache_key(mode, &request.page_url), report.clone()).await;
             Json(report).into_response()
         }
         Err(error) => error_response(StatusCode::BAD_GATEWAY, &format!("{error:#}")),
@@ -278,7 +374,7 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
             .lock()
             .await
             .get(&cache_key(mode, &page_url))
-            .cloned();
+            .map(|scan| scan.report.clone());
         match cached {
             Some(report) => report,
             None => {
@@ -574,8 +670,8 @@ fn name_drafts_from_overrides(overrides: &[NameOverride]) -> Option<HashMap<Stri
 
 async fn font_url_from_scan(state: &AppState, url: &str) -> bool {
     let scans = state.scans.lock().await;
-    scans.values().any(|report| {
-        report
+    scans.values().any(|scan| {
+        scan.report
             .fonts
             .iter()
             .any(|font| font.sources.iter().any(|source| source.url == url))
@@ -609,5 +705,57 @@ fn open_browser(url: &str) {
 
     if let Err(error) = result {
         eprintln!("Could not open browser automatically ({error}); open {url} manually.");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report(url: &str) -> ScanReport {
+        ScanReport {
+            page_url: url.to_string(),
+            mode: DiscoveryMode::Static,
+            used_browser: false,
+            warnings: Vec::new(),
+            fonts: Vec::new(),
+        }
+    }
+
+    fn cached(url: &str, age: Duration) -> CachedScan {
+        CachedScan {
+            report: report(url),
+            created: Instant::now() - age,
+        }
+    }
+
+    #[test]
+    fn prune_drops_expired_scans_and_caps_the_map() {
+        let mut scans = ScanCache::new();
+        scans.insert("fresh".into(), cached("http://fresh/", Duration::ZERO));
+        scans.insert("stale".into(), cached("http://stale/", SCAN_TTL));
+        prune_scans(&mut scans);
+        assert!(scans.contains_key("fresh"));
+        assert!(!scans.contains_key("stale"), "expired scan was kept");
+
+        // Well under the TTL, but past the cap: the oldest entries go first.
+        let mut scans = ScanCache::new();
+        for index in 0..(SCAN_LIMIT + 8) {
+            scans.insert(
+                format!("site-{index}"),
+                // Older keys carry a larger age, so eviction order is knowable.
+                cached(
+                    &format!("http://site-{index}/"),
+                    Duration::from_secs((SCAN_LIMIT + 8 - index) as u64),
+                ),
+            );
+        }
+        prune_scans(&mut scans);
+        assert_eq!(scans.len(), SCAN_LIMIT);
+        assert!(!scans.contains_key("site-0"), "oldest scan was kept");
+        assert!(
+            scans.contains_key(&format!("site-{}", SCAN_LIMIT + 7)),
+            "newest scan was evicted"
+        );
     }
 }

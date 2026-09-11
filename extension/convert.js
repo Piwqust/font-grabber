@@ -10,7 +10,10 @@ const FontConverter = (() => {
   async function load() {
     const url = chrome.runtime.getURL("convert.wasm");
     try {
-      const { instance: inst } = await WebAssembly.instantiateStreaming(fetch(url), {});
+      const { instance: inst } = await WebAssembly.instantiateStreaming(
+        fetch(url),
+        {},
+      );
       return inst;
     } catch {
       // Fallback if the .wasm isn't served as application/wasm.
@@ -22,7 +25,13 @@ const FontConverter = (() => {
 
   async function ready() {
     if (instance) return instance;
-    if (!loading) loading = load().then((inst) => (instance = inst));
+    if (!loading)
+      loading = load()
+        .then((inst) => (instance = inst))
+        .catch((error) => {
+          loading = null;
+          throw error;
+        });
     return loading;
   }
 
@@ -44,7 +53,7 @@ const FontConverter = (() => {
     const meta = new TextEncoder().encode(
       draft && draft.family
         ? `${draft.family}\t${weight || "400"}\t${style || "normal"}\tdraft\t${draft.subfamily || ""}\t${draft.full_name || ""}\t${draft.postscript || ""}`
-        : `${family || ""}\t${weight || "400"}\t${style || "normal"}`
+        : `${family || ""}\t${weight || "400"}\t${style || "normal"}`,
     );
 
     const fontPtr = writeBytes(ex, bytes);
@@ -80,7 +89,13 @@ const FontConverter = (() => {
 
   // 'otf' if the sfnt starts with OTTO, otherwise 'ttf'.
   function sfntExtension(bytes) {
-    if (bytes.length >= 4 && bytes[0] === 0x4f && bytes[1] === 0x54 && bytes[2] === 0x54 && bytes[3] === 0x4f) {
+    if (
+      bytes.length >= 4 &&
+      bytes[0] === 0x4f &&
+      bytes[1] === 0x54 &&
+      bytes[2] === 0x54 &&
+      bytes[3] === 0x4f
+    ) {
       return "otf";
     }
     return "ttf";

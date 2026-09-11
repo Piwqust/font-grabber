@@ -1,0 +1,276 @@
+/* --- Tokens --------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  --page: #fbfbfa;
+  --surface: #ffffff;
+  --surface-sunk: #f4f4f3;
+  --ink: #151518;
+  --ink-soft: #3d3d46;
+  --muted: #6d6e7a;
+  --line: #e7e7e6;
+  --line-strong: #d3d3d1;
+  --accent: #2f66bd;
+  --accent-soft: #eef3fc;
+  --success: #276545;
+  --error: #b12e35;
+  --warning: #8a5b12;
+
+  --sans: Geist, "Segoe UI", system-ui, sans-serif;
+  --serif: Newsreader, Georgia, "Times New Roman", serif;
+  --mono: "Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-s: 8px;
+  --radius-m: 12px;
+  --radius-l: 18px;
+  --radius-pill: 999px;
+
+  --shadow-card:
+    0 1px 2px rgb(20 20 24 / 0.05), 0 12px 32px -20px rgb(20 20 24 / 0.28);
+  --shadow-float:
+    0 2px 6px rgb(20 20 24 / 0.06), 0 28px 60px -28px rgb(20 20 24 / 0.4);
+  --shadow-pop: 0 24px 60px -24px rgb(20 20 24 / 0.42);
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --gutter: clamp(1.25rem, 5vw, 4.5rem);
+  --measure: 74rem;
+  --preview-size: 32px;
+}
+
+/* The dark palette applies in two cases: the system asks for it and nothing
+   overrides that, or the person picked dark in the header. The two blocks below
+   are the same declarations under different conditions — a media query cannot
+   be combined with a selector, so they have to be kept in sync by hand. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --page: #0c0c0e;
+    --surface: #141417;
+    --surface-sunk: #1b1b1f;
+    --ink: #f1f1f3;
+    --ink-soft: #cbcbd2;
+    --muted: #9294a0;
+    --line: #26262b;
+    --line-strong: #35353c;
+    --accent: #7ba6ef;
+    --accent-soft: #17202f;
+    --success: #6cc295;
+    --error: #ef8189;
+    --warning: #dcae5f;
+
+    --shadow-card:
+      0 1px 2px rgb(0 0 0 / 0.5), 0 12px 32px -20px rgb(0 0 0 / 0.8);
+    --shadow-float:
+      0 2px 6px rgb(0 0 0 / 0.5), 0 28px 60px -28px rgb(0 0 0 / 0.9);
+    --shadow-pop: 0 24px 60px -24px rgb(0 0 0 / 0.85);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --page: #0c0c0e;
+  --surface: #141417;
+  --surface-sunk: #1b1b1f;
+  --ink: #f1f1f3;
+  --ink-soft: #cbcbd2;
+  --muted: #9294a0;
+  --line: #26262b;
+  --line-strong: #35353c;
+  --accent: #7ba6ef;
+  --accent-soft: #17202f;
+  --success: #6cc295;
+  --error: #ef8189;
+  --warning: #dcae5f;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 12px 32px -20px rgb(0 0 0 / 0.8);
+  --shadow-float:
+    0 2px 6px rgb(0 0 0 / 0.5), 0 28px 60px -28px rgb(0 0 0 / 0.9);
+  --shadow-pop: 0 24px 60px -24px rgb(0 0 0 / 0.85);
+}
+
+/* --- Reset ---------------------------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 6rem;
+  -webkit-text-size-adjust: 100%;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 15px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* `clip`, not `hidden`: `overflow-x: hidden` on the body turns it into a
+     scroll container, and fragment navigation (#how, #capabilities) then
+     changes the hash without scrolling anywhere. `clip` trims the hero's
+     bleeding cards without that side effect. */
+  overflow-x: clip;
+}
+h1,
+h2,
+h3,
+h4,
+p,
+figure,
+dl,
+dd {
+  margin: 0;
+}
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+button {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+input {
+  min-width: 0;
+  background: transparent;
+  border: 0;
+}
+input::placeholder {
+  color: var(--muted);
+  opacity: 0.75;
+}
+code {
+  font-family: var(--mono);
+}
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
+}
+
+/* --- Utilities ------------------------------------------------------------ */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.skip {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-pill);
+  background: var(--ink);
+  color: var(--page);
+  transform: translateY(-200%);
+  transition: transform 0.18s var(--ease);
+}
+.skip:focus {
+  transform: none;
+}
+.eyebrow {
+  font: 400 11px/1 var(--mono);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.section {
+  max-width: var(--measure);
+  margin-inline: auto;
+  padding: clamp(3.25rem, 8vw, 6.5rem) var(--gutter);
+}
+.section-head {
+  display: grid;
+  gap: 0.9rem;
+  margin-bottom: clamp(1.9rem, 3.8vw, 3rem);
+}
+.section-title {
+  font: 400 clamp(2rem, 4.4vw, 3.3rem) / 1.08 var(--serif);
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.section-title em {
+  font-style: italic;
+}
+
+/* Scroll reveal. The transition is the whole effect, so reduced motion simply
+   leaves the element at its resting state. */
+.reveal {
+  opacity: 0;
+  transform: translateY(var(--reveal-y, 16px)) translateX(var(--reveal-x, 0));
+  transition:
+    opacity 0.6s var(--ease) var(--reveal-delay, 0ms),
+    transform 0.6s var(--ease) var(--reveal-delay, 0ms);
+}
+.reveal-left {
+  --reveal-x: -18px;
+  --reveal-y: 0px;
+}
+.reveal-right {
+  --reveal-x: 18px;
+  --reveal-y: 0px;
+}
+.reveal[data-visible="true"] {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
