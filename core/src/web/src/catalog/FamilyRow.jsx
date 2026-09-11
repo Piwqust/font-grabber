@@ -82,7 +82,7 @@ export function FamilyRow({ group }) {
       </div>
 
       <div class="family-content" data-open={String(open)}>
-        <div class="family-preview-panel">
+        <div class="family-preview-panel" inert={open}>
           <button
             type="button"
             class="family-strip"
@@ -92,7 +92,7 @@ export function FamilyRow({ group }) {
             <Preview font={representative} text={store.sampleText} />
           </button>
         </div>
-        <div class="family-faces-panel">
+        <div class="family-faces-panel" inert={!open}>
           <div class="family-faces">
           {hasVariable ? (
             <Button

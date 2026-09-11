@@ -780,6 +780,12 @@ code {
   grid-template-rows: 1fr;
   opacity: 1;
 }
+.disclosure-panel[data-open="false"] .disclosure-body {
+  visibility: hidden;
+}
+.disclosure-panel[data-open="true"] .disclosure-body {
+  visibility: visible;
+}
 @media (prefers-reduced-motion: reduce) {
   .disclosure-panel {
     transition: none;
