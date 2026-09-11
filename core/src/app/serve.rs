@@ -1,3 +1,4 @@
+mod metadata;
 mod workflow;
 
 use std::{
@@ -51,6 +52,7 @@ struct AppState {
     hosted: bool,
     scans: Arc<Mutex<ScanCache>>,
     exports: Arc<Mutex<HashMap<String, workflow::Archive>>>,
+    uploads: Arc<Mutex<HashMap<String, metadata::Upload>>>,
 }
 
 /// Drops everything past the TTL, then the oldest entries above the cap.
@@ -99,9 +101,11 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         hosted: args.hosted,
         scans: Arc::new(Mutex::new(HashMap::new())),
         exports: Arc::new(Mutex::new(HashMap::new())),
+        uploads: Arc::new(Mutex::new(HashMap::new())),
     };
 
     workflow::start_cleanup(state.exports.clone());
+    metadata::start_cleanup(state.uploads.clone());
     start_scan_cleanup(state.scans.clone());
     let app = Router::new()
         .route("/", get(index))
@@ -115,6 +119,7 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         .route("/api/export/:id", get(workflow::archive))
         .route("/api/coverage", post(workflow::coverage))
         .route("/api/font", get(font_proxy))
+        .merge(metadata::routes())
         .with_state(state);
 
     let addr = format!("{}:{}", args.host, args.port);
@@ -661,6 +666,7 @@ fn name_drafts_from_overrides(overrides: &[NameOverride]) -> Option<HashMap<Stri
                         full_name: item.full_name.clone(),
                         postscript: item.postscript.clone(),
                         filename: item.filename.clone(),
+                        ..NameDraft::default()
                     },
                 )
             })

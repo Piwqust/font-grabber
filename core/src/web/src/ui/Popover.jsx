@@ -1,6 +1,5 @@
 import { cloneElement } from "preact";
 import { useCallback, useEffect, useId, useRef, useState } from "preact/hooks";
-import { play, EASE } from "../lib/motion.js";
 import { IconButton } from "./Button.jsx";
 
 /**
@@ -49,19 +48,6 @@ export function Popover({
       setOpen(isOpen);
       if (isOpen) {
         position();
-        play(
-          panel,
-          {
-            opacity: [0, 1],
-            // Both keyframes spell out the same transform functions: Motion
-            // resolves a bare "none" against them to a zero matrix.
-            transform: [
-              "scale(0.97) translateY(-4px)",
-              "scale(1) translateY(0px)",
-            ],
-          },
-          { duration: 0.18, ease: EASE },
-        );
         // Focus the first control so the panel is usable straight from the keyboard.
         panel.querySelector("input, select, button, [tabindex]")?.focus();
       } else if (

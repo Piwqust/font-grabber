@@ -148,6 +148,7 @@ fn cli_name_drafts(
                         full_name: None,
                         postscript: None,
                         filename: None,
+                        ..NameDraft::default()
                     },
                 )
             })

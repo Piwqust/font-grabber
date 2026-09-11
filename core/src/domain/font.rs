@@ -250,6 +250,19 @@ pub struct NameDraft {
     /// Output file stem without extension. When omitted, derived from family + subfamily.
     #[serde(default)]
     pub filename: Option<String>,
+    pub copyright: Option<String>,
+    pub trademark: Option<String>,
+    pub manufacturer: Option<String>,
+    pub designer: Option<String>,
+    pub description: Option<String>,
+    pub vendor_url: Option<String>,
+    pub designer_url: Option<String>,
+    pub license: Option<String>,
+    pub license_url: Option<String>,
+    pub version: Option<String>,
+    /// Sparse editor changes; legacy export drafts still derive installation names.
+    #[serde(skip)]
+    pub name_changes: Option<std::collections::BTreeMap<u16, String>>,
 }
 
 #[derive(Debug, Clone)]

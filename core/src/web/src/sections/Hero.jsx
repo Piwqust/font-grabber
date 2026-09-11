@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { useStore } from "../store.jsx";
 import { play, stagger, useMediaQuery, EASE } from "../lib/motion.js";
 import {
   cardLayoutFits,
@@ -28,9 +29,14 @@ const TASKS = [
  * moved card back belongs next to the scroll cue rather than inside the stage.
  */
 export function Hero() {
+  const store = useStore();
   const ref = useRef(null);
   const wide = useMediaQuery(STAGE_QUERY);
-  const [task, setTask] = useState("find");
+  // Which of the two tasks the hero is showing lives in the store, so opening
+  // the editor and coming back out of it lands on the control it was opened
+  // from rather than on the address field.
+  const task = store.heroTask;
+  const setTask = (heroTask) => store.patch({ heroTask });
   const [moved, setMoved] = useState(
     () => wide && Object.keys(cardPositions()).length > 0,
   );

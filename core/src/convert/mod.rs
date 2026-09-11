@@ -13,7 +13,74 @@ use crate::{
     support::{emit_log, sanitize_file_stem, Logger},
 };
 
+pub use name_repair::normalize_version;
 pub use name_repair::subfamily_from_weight_style;
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NameSet {
+    pub family: Option<String>,
+    pub subfamily: Option<String>,
+    pub full_name: Option<String>,
+    pub postscript: Option<String>,
+    pub version: Option<String>,
+    pub copyright: Option<String>,
+    pub trademark: Option<String>,
+    pub manufacturer: Option<String>,
+    pub designer: Option<String>,
+    pub description: Option<String>,
+    pub vendor_url: Option<String>,
+    pub designer_url: Option<String>,
+    pub license: Option<String>,
+    pub license_url: Option<String>,
+}
+
+impl NameSet {
+    pub fn changes(&self) -> std::collections::BTreeMap<u16, String> {
+        [
+            (0, &self.copyright),
+            (1, &self.family),
+            (2, &self.subfamily),
+            (4, &self.full_name),
+            (5, &self.version),
+            (6, &self.postscript),
+            (7, &self.trademark),
+            (8, &self.manufacturer),
+            (9, &self.designer),
+            (10, &self.description),
+            (11, &self.vendor_url),
+            (12, &self.designer_url),
+            (13, &self.license),
+            (14, &self.license_url),
+        ]
+        .into_iter()
+        .filter_map(|(id, value)| value.clone().map(|v| (id, v)))
+        .collect()
+    }
+}
+
+pub fn inspect_names(bytes: &[u8]) -> Result<NameSet> {
+    let sfnt = decompress_to_sfnt(bytes, FontFormat::sniff(bytes))?;
+    Face::parse(&sfnt, 0).context("Could not parse font")?;
+    let names = name_repair::inspect_sfnt_names(&sfnt)?;
+    let get = |id| names.get(&id).cloned();
+    Ok(NameSet {
+        family: get(16).or_else(|| get(1)),
+        subfamily: get(17).or_else(|| get(2)),
+        full_name: get(4),
+        postscript: get(6),
+        version: get(5),
+        copyright: get(0),
+        trademark: get(7),
+        manufacturer: get(8),
+        designer: get(9),
+        description: get(10),
+        vendor_url: get(11),
+        designer_url: get(12),
+        license: get(13),
+        license_url: get(14),
+    })
+}
 
 const WOFF_SIGNATURE: u32 = 0x774F_4646;
 const WOFF2_SIGNATURE: u32 = 0x774F_4632;
@@ -269,13 +336,37 @@ fn read_u32(buf: &[u8], offset: usize) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     use crate::domain::FontScript;
 
-    fn fixture(path: &str) -> Vec<u8> {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
-        fs::read(path).unwrap()
+    fn script_fixture(probes: &[&[char]]) -> Vec<u8> {
+        let mut font = decompress_to_sfnt(
+            include_bytes!("../web/assets/geist-400.woff2"),
+            FontFormat::Woff2,
+        )
+        .unwrap();
+        let chars: std::collections::BTreeSet<_> =
+            probes.iter().flat_map(|p| p.iter().copied()).collect();
+        // A format-12 cmap makes coverage deterministic without ignored font downloads.
+        let mut cmap = vec![0, 0, 0, 1, 0, 3, 0, 10, 0, 0, 0, 12, 0, 12, 0, 0];
+        cmap.extend_from_slice(&(16 + chars.len() as u32 * 12).to_be_bytes());
+        cmap.extend_from_slice(&0u32.to_be_bytes());
+        cmap.extend_from_slice(&(chars.len() as u32).to_be_bytes());
+        for ch in chars {
+            cmap.extend_from_slice(&(ch as u32).to_be_bytes());
+            cmap.extend_from_slice(&(ch as u32).to_be_bytes());
+            cmap.extend_from_slice(&1u32.to_be_bytes());
+        }
+        let count = u16::from_be_bytes([font[4], font[5]]) as usize;
+        let record = (0..count)
+            .map(|i| 12 + i * 16)
+            .find(|&i| &font[i..i + 4] == b"cmap")
+            .unwrap();
+        let offset = font.len() as u32;
+        font[record + 8..record + 12].copy_from_slice(&offset.to_be_bytes());
+        font[record + 12..record + 16].copy_from_slice(&(cmap.len() as u32).to_be_bytes());
+        font.extend_from_slice(&cmap);
+        font
     }
 
     #[test]
@@ -301,9 +392,12 @@ mod tests {
 
     #[test]
     fn detect_supported_scripts_distinguishes_intl_and_latin_subset_fonts() {
-        let mono = fixture(
-            "fonts/gt-america.com/GT_America_Intl_Mono/GT-America-Intl-Mono-400-Variable.ttf",
-        );
+        let mono = script_fixture(&[
+            LATIN_PROBES,
+            CYRILLIC_PROBES,
+            GREEK_PROBES,
+            VIETNAMESE_PROBES,
+        ]);
         let mono_scripts = detect_supported_scripts(&mono).unwrap();
         assert!(mono_scripts.contains(&FontScript::Latin));
         assert!(mono_scripts.contains(&FontScript::Cyrillic));
@@ -311,9 +405,7 @@ mod tests {
         assert!(mono_scripts.contains(&FontScript::Vietnamese));
         assert!(!mono_scripts.contains(&FontScript::Arabic));
 
-        let subset = fixture(
-            "fonts/gt-america.com/GT_America_Intl_Latin_Subset/GT-America-Intl-Latin-Subset-400-stretch-1%-500%-Variable.ttf",
-        );
+        let subset = script_fixture(&[LATIN_PROBES]);
         let subset_scripts = detect_supported_scripts(&subset).unwrap();
         assert!(subset_scripts.contains(&FontScript::Latin));
         assert!(!subset_scripts.contains(&FontScript::Cyrillic));

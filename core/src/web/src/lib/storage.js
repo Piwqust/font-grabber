@@ -154,3 +154,41 @@ export function loadSession() {
     return null;
   }
 }
+
+/* --- Metadata draft --------------------------------------------------------
+   The editor keeps its own entry, so a reload in the middle of renaming a
+   family does not lose the draft. Only what can be serialised is written: the
+   chosen files themselves stay in memory, and their previews are simply
+   reloaded as fallbacks after a reload. */
+
+const METADATA_KEY = "fount-metadata-v1";
+
+export function saveMetadataSession(draft) {
+  try {
+    if (!draft) sessionStorage.removeItem(METADATA_KEY);
+    else sessionStorage.setItem(METADATA_KEY, JSON.stringify(draft));
+  } catch {
+    /* Storage may be disabled or full; the live draft stays usable. */
+  }
+}
+
+export function loadMetadataSession() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(METADATA_KEY));
+    if (
+      !saved ||
+      !Array.isArray(saved.fonts) ||
+      !saved.fonts.length ||
+      !saved.source ||
+      !["scan", "upload"].includes(saved.source.kind)
+    )
+      return null;
+    return {
+      ...saved,
+      familyDraft: saved.familyDraft || {},
+      faceDrafts: saved.faceDrafts || {},
+    };
+  } catch {
+    return null;
+  }
+}

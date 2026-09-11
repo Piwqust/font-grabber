@@ -100,6 +100,17 @@ function MobileSelectionBar() {
         {store.selected.length} file{store.selected.length === 1 ? "" : "s"}
       </span>
       <Button
+        id="edit-metadata-bar"
+        variant="quiet"
+        size="m"
+        icon="type"
+        busy={store.metadata.inspecting}
+        disabled={store.busy || store.metadata.inspecting}
+        onClick={store.openMetadataFromSelection}
+      >
+        Edit metadata
+      </Button>
+      <Button
         variant="solid"
         size="m"
         iconEnd="download"

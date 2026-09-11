@@ -6,6 +6,17 @@ use crate::domain::{FontCandidate, NameDraft};
 
 const CHECKSUM_MAGIC: u32 = 0xB1B0_AFBA;
 const REQUIRED_WINDOWS_NAME_IDS: [u16; 6] = [1, 2, 3, 4, 5, 6];
+// Macintosh Roman's upper half; Unicode records retain characters outside it.
+const MAC_ROMAN: &str = concat!(
+    "\u{c4}\u{c5}\u{c7}\u{c9}\u{d1}\u{d6}\u{dc}\u{e1}\u{e0}\u{e2}\u{e4}\u{e3}\u{e5}\u{e7}\u{e9}\u{e8}",
+    "\u{ea}\u{eb}\u{ed}\u{ec}\u{ee}\u{ef}\u{f1}\u{f3}\u{f2}\u{f4}\u{f6}\u{f5}\u{fa}\u{f9}\u{fb}\u{fc}",
+    "\u{2020}\u{b0}\u{a2}\u{a3}\u{a7}\u{2022}\u{b6}\u{df}\u{ae}\u{a9}\u{2122}\u{b4}\u{a8}\u{2260}\u{c6}\u{d8}",
+    "\u{221e}\u{b1}\u{2264}\u{2265}\u{a5}\u{b5}\u{2202}\u{2211}\u{220f}\u{3c0}\u{222b}\u{aa}\u{ba}\u{3a9}\u{e6}\u{f8}",
+    "\u{bf}\u{a1}\u{ac}\u{221a}\u{192}\u{2248}\u{2206}\u{ab}\u{bb}\u{2026}\u{a0}\u{c0}\u{c3}\u{d5}\u{152}\u{153}",
+    "\u{2013}\u{2014}\u{201c}\u{201d}\u{2018}\u{2019}\u{f7}\u{25ca}\u{ff}\u{178}\u{2044}\u{20ac}\u{2039}\u{203a}\u{fb01}\u{fb02}",
+    "\u{2021}\u{b7}\u{201a}\u{201e}\u{2030}\u{c2}\u{ca}\u{c1}\u{cb}\u{c8}\u{cd}\u{ce}\u{cf}\u{cc}\u{d3}\u{d4}",
+    "\u{f8ff}\u{d2}\u{da}\u{db}\u{d9}\u{131}\u{2c6}\u{2dc}\u{af}\u{2d8}\u{2d9}\u{2da}\u{b8}\u{2dd}\u{2db}\u{2c7}",
+);
 
 #[derive(Clone, Copy)]
 struct TableEntry {
@@ -73,15 +84,44 @@ pub fn repair_name_table_if_needed(sfnt_data: &[u8], info: &FontCandidate) -> Re
 /// (ID 16) and subfamily (ID 17) so macOS groups the faces as one family.
 pub fn apply_name_draft(sfnt_data: &[u8], draft: &NameDraft) -> Result<Vec<u8>> {
     let tables = parse_tables(sfnt_data)?;
-    let Some(name_entry) = tables.iter().find(|entry| &entry.tag == b"name") else {
-        return Ok(sfnt_data.to_vec());
-    };
+    let name_entry = tables
+        .iter()
+        .find(|entry| &entry.tag == b"name")
+        .ok_or_else(|| anyhow!("Font has no name table"))?;
     let name_table = slice_range(sfnt_data, name_entry.offset, name_entry.length)?;
-    if name_table.len() < 6 {
-        return Ok(sfnt_data.to_vec());
-    }
+    anyhow::ensure!(name_table.len() >= 6, "Name table too small");
 
     let existing = read_name_values(name_table)?;
+    if let Some(changes) = &draft.name_changes {
+        let mut replacements = changes.clone();
+        for (id, legacy_id, fallback) in [(16, 1, "Font"), (17, 2, "Regular")] {
+            let value = replacements.get(&legacy_id).cloned().unwrap_or_else(|| {
+                preferred_existing_name(&existing, &[id, legacy_id])
+                    .unwrap_or_else(|| fallback.to_string())
+            });
+            replacements.insert(id, value);
+        }
+        let version = match replacements.get(&5) {
+            Some(value) if !value.is_empty() => normalize_version(value)?,
+            _ => existing
+                .get(&5)
+                .cloned()
+                .unwrap_or_else(|| "Version 1.000".into()),
+        };
+        if replacements.get(&5).is_some_and(|v| !v.is_empty()) {
+            replacements.insert(5, version.clone());
+        }
+        let ps = replacements
+            .get(&6)
+            .or_else(|| existing.get(&6))
+            .cloned()
+            .unwrap_or_else(|| "Font-Regular".into());
+        replacements.insert(
+            3,
+            format!("{};Fount;{ps}", version.trim_start_matches("Version ")),
+        );
+        return rewrite_names(sfnt_data, &tables, name_table, &replacements);
+    }
     let family = {
         let value = normalize_user_name(&draft.family);
         if value.is_empty() {
@@ -119,10 +159,13 @@ pub fn apply_name_draft(sfnt_data: &[u8], draft: &NameDraft) -> Result<Vec<u8>> 
             }
         })
         .unwrap_or_else(|| compose_post_script_name(&family, &subfamily));
-    let unique_id = format!("1.000;Fount;{ps_name}");
-    let version =
-        preferred_existing_name(&existing, &[5]).unwrap_or_else(|| "Version 1.000".to_string());
-    let replacements = BTreeMap::from([
+    let version = match draft.version.as_deref() {
+        Some("") => String::new(),
+        Some(value) => normalize_version(value)?,
+        None => preferred_existing_name(&existing, &[5]).unwrap_or_else(|| "Version 1.000".into()),
+    };
+    let unique_id = format!("{};Fount;{ps_name}", version.trim_start_matches("Version "));
+    let mut replacements = BTreeMap::from([
         (1, family.clone()),
         (2, subfamily.clone()),
         (3, unique_id),
@@ -132,8 +175,75 @@ pub fn apply_name_draft(sfnt_data: &[u8], draft: &NameDraft) -> Result<Vec<u8>> 
         (16, family),
         (17, subfamily),
     ]);
-    let new_name_table = patch_name_table(name_table, &replacements)?;
-    rebuild_sfnt_with_name_table(sfnt_data, &tables, &new_name_table)
+    for (id, value) in [
+        (0, &draft.copyright),
+        (7, &draft.trademark),
+        (8, &draft.manufacturer),
+        (9, &draft.designer),
+        (10, &draft.description),
+        (11, &draft.vendor_url),
+        (12, &draft.designer_url),
+        (13, &draft.license),
+        (14, &draft.license_url),
+    ] {
+        if let Some(value) = value {
+            replacements.insert(id, value.clone());
+        }
+    }
+    if draft.version.is_none() {
+        replacements.remove(&5);
+    }
+    rewrite_names(sfnt_data, &tables, name_table, &replacements)
+}
+
+pub fn normalize_version(value: &str) -> Result<String> {
+    let value = value
+        .trim()
+        .strip_prefix("Version ")
+        .unwrap_or(value.trim());
+    let (major, fraction) = value.split_once('.').unwrap_or((value, ""));
+    anyhow::ensure!(
+        !major.is_empty()
+            && major.bytes().all(|b| b.is_ascii_digit())
+            && fraction.len() <= 3
+            && fraction.bytes().all(|b| b.is_ascii_digit()),
+        "Version must be a number such as 1.000"
+    );
+    let major: u16 = major.parse()?;
+    anyhow::ensure!(major <= 32767, "Version is too large");
+    Ok(format!("Version {major}.{fraction:0<3}"))
+}
+
+fn rewrite_names(
+    data: &[u8],
+    tables: &[TableEntry],
+    names: &[u8],
+    changes: &BTreeMap<u16, String>,
+) -> Result<Vec<u8>> {
+    let patched = patch_name_table(names, changes)?;
+    let mut source = data.to_vec();
+    if let Some(version) = changes.get(&5).filter(|v| !v.is_empty()) {
+        let normalized = normalize_version(version)?;
+        let value: f64 = normalized.trim_start_matches("Version ").parse()?;
+        if let Some(head) = tables.iter().find(|t| &t.tag == b"head") {
+            anyhow::ensure!(head.length >= 12, "Invalid head table");
+            write_u32(
+                &mut source,
+                head.offset + 4,
+                (value * 65536.0).round() as u32,
+            )?;
+        }
+    }
+    rebuild_sfnt_with_name_table(&source, tables, &patched)
+}
+
+pub(super) fn inspect_sfnt_names(data: &[u8]) -> Result<BTreeMap<u16, String>> {
+    let tables = parse_tables(data)?;
+    let name = tables
+        .iter()
+        .find(|t| &t.tag == b"name")
+        .ok_or_else(|| anyhow!("Font has no name table"))?;
+    read_name_values(slice_range(data, name.offset, name.length)?)
 }
 
 pub fn subfamily_from_weight_style(weight: &str, style: &str) -> String {
@@ -166,7 +276,7 @@ fn read_name_values(name_table: &[u8]) -> Result<BTreeMap<u16, String>> {
         }
         let platform_id = read_u16(name_table, offset)?;
         let name_id = read_u16(name_table, offset + 6)?;
-        if !matches!(name_id, 1 | 2 | 3 | 4 | 5 | 6 | 16 | 17) {
+        if name_id > 17 {
             continue;
         }
         let length = read_u16(name_table, offset + 8)? as usize;
@@ -177,7 +287,7 @@ fn read_name_values(name_table: &[u8]) -> Result<BTreeMap<u16, String>> {
             continue;
         };
         let value = decode_name_str(raw, platform_id);
-        if !is_valid_font_name(&value) {
+        if value.is_empty() {
             continue;
         }
 
@@ -325,53 +435,34 @@ fn patch_name_table(name_table: &[u8], replacements: &BTreeMap<u16, String>) -> 
         let raw = name_table
             .get(str_offset + string_offset..str_offset + string_offset + length)
             .unwrap_or_default();
-        let value = replacements
-            .get(&record.name_id)
-            .cloned()
-            .unwrap_or_else(|| decode_name_str(raw, record.platform_id));
-
-        entries.push((record, encode_name_str(&value, record.platform_id)));
-    }
-
-    for name_id in REQUIRED_WINDOWS_NAME_IDS {
-        let has_windows_record = entries.iter().any(|(record, _)| {
-            record.platform_id == 3 && record.encoding_id == 1 && record.name_id == name_id
-        });
-        if !has_windows_record {
-            let value = replacements
-                .get(&name_id)
-                .cloned()
-                .ok_or_else(|| anyhow!("Missing replacement for name ID {name_id}"))?;
-            entries.push((
-                NameRecord {
-                    platform_id: 3,
-                    encoding_id: 1,
-                    language_id: 0x0409,
-                    name_id,
-                },
-                encode_name_str(&value, 3),
-            ));
+        match replacements.get(&record.name_id) {
+            Some(value) if value.is_empty() => continue,
+            Some(value) => entries.push((record, encode_name_str(value, record.platform_id))),
+            None => entries.push((record, raw.to_vec())),
         }
     }
 
-    for name_id in [16u16, 17] {
-        if !replacements.contains_key(&name_id) {
+    for (&name_id, value) in replacements {
+        if value.is_empty() {
             continue;
         }
-        let has_windows_record = entries.iter().any(|(record, _)| {
-            record.platform_id == 3 && record.encoding_id == 1 && record.name_id == name_id
-        });
-        if !has_windows_record {
-            let value = replacements[&name_id].clone();
-            entries.push((
-                NameRecord {
-                    platform_id: 3,
-                    encoding_id: 1,
-                    language_id: 0x0409,
-                    name_id,
-                },
-                encode_name_str(&value, 3),
-            ));
+        for (platform_id, encoding_id, language_id) in [(3, 1, 0x0409), (1, 0, 0)] {
+            if !entries.iter().any(|(r, _)| {
+                r.platform_id == platform_id
+                    && r.encoding_id == encoding_id
+                    && r.language_id == language_id
+                    && r.name_id == name_id
+            }) {
+                entries.push((
+                    NameRecord {
+                        platform_id,
+                        encoding_id,
+                        language_id,
+                        name_id,
+                    },
+                    encode_name_str(value, platform_id),
+                ));
+            }
         }
     }
 
@@ -386,13 +477,25 @@ fn patch_name_table(name_table: &[u8], replacements: &BTreeMap<u16, String>) -> 
 
     let new_records_end = 6 + entries.len() * 12;
     let new_str_offset = new_records_end + prefix.len();
-    let total_length = new_str_offset + entries.iter().map(|(_, value)| value.len()).sum::<usize>();
+    // Format 1 language-tag offsets refer to the original string storage.
+    let language_storage = if format == 1 {
+        &name_table[str_offset..]
+    } else {
+        &[]
+    };
+    let strings_length =
+        language_storage.len() + entries.iter().map(|(_, value)| value.len()).sum::<usize>();
+    anyhow::ensure!(
+        new_str_offset <= u16::MAX as usize && strings_length <= u16::MAX as usize,
+        "Name table is too large"
+    );
+    let total_length = new_str_offset + strings_length;
     let mut output = vec![0u8; total_length];
     write_u16(&mut output, 0, format)?;
     write_u16(&mut output, 2, entries.len() as u16)?;
     write_u16(&mut output, 4, new_str_offset as u16)?;
 
-    let mut cursor = 0usize;
+    let mut cursor = language_storage.len();
     for (index, (record, value)) in entries.iter().enumerate() {
         let offset = 6 + index * 12;
         write_u16(&mut output, offset, record.platform_id)?;
@@ -405,7 +508,9 @@ fn patch_name_table(name_table: &[u8], replacements: &BTreeMap<u16, String>) -> 
     }
 
     output[new_records_end..new_records_end + prefix.len()].copy_from_slice(&prefix);
-    let mut string_cursor = new_str_offset;
+    output[new_str_offset..new_str_offset + language_storage.len()]
+        .copy_from_slice(language_storage);
+    let mut string_cursor = new_str_offset + language_storage.len();
     for (_, encoded) in entries {
         output[string_cursor..string_cursor + encoded.len()].copy_from_slice(&encoded);
         string_cursor += encoded.len();
@@ -564,7 +669,16 @@ fn decode_name_str(bytes: &[u8], platform_id: u16) -> String {
             .collect::<Vec<_>>();
         String::from_utf16_lossy(&words)
     } else {
-        bytes.iter().map(|byte| *byte as char).collect()
+        bytes
+            .iter()
+            .map(|&byte| {
+                if byte < 128 {
+                    byte as char
+                } else {
+                    MAC_ROMAN.chars().nth((byte - 128) as usize).unwrap()
+                }
+            })
+            .collect()
     }
 }
 
@@ -575,7 +689,20 @@ fn encode_name_str(value: &str, platform_id: u16) -> Vec<u8> {
             .flat_map(|word| word.to_be_bytes())
             .collect()
     } else {
-        value.bytes().collect()
+        value
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii() {
+                    ch as u8
+                } else {
+                    MAC_ROMAN
+                        .chars()
+                        .position(|candidate| candidate == ch)
+                        .map(|i| i as u8 + 128)
+                        .unwrap_or(b'?')
+                }
+            })
+            .collect()
     }
 }
 
@@ -637,6 +764,131 @@ fn write_u32(buf: &mut [u8], offset: usize, value: u32) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn geist() -> Vec<u8> {
+        super::super::decompress_to_sfnt(
+            include_bytes!("../web/assets/geist-400.woff2"),
+            crate::domain::FontFormat::Woff2,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn arbitrary_records_are_added_replaced_removed_and_sorted() {
+        let original = windows_name_table(&[
+            (0, "Copyright"),
+            (8, "Old Foundry"),
+            (13, "License"),
+            (15, "Reserved"),
+        ]);
+        let patched = patch_name_table(
+            &original,
+            &BTreeMap::from([
+                (0, String::new()),
+                (8, "New Foundry".into()),
+                (9, "Designer".into()),
+                (13, String::new()),
+            ]),
+        )
+        .unwrap();
+        let names = read_name_values(&patched).unwrap();
+        assert!(!names.contains_key(&0));
+        assert!(!names.contains_key(&13));
+        assert_eq!(names[&8], "New Foundry");
+        assert_eq!(names[&9], "Designer");
+        assert_eq!(names[&15], "Reserved");
+        let records: Vec<_> = (0..read_u16(&patched, 2).unwrap() as usize)
+            .map(|i| {
+                let off = 6 + i * 12;
+                (
+                    read_u16(&patched, off).unwrap(),
+                    read_u16(&patched, off + 2).unwrap(),
+                    read_u16(&patched, off + 4).unwrap(),
+                    read_u16(&patched, off + 6).unwrap(),
+                )
+            })
+            .collect();
+        assert!(records.windows(2).all(|w| w[0] <= w[1]));
+        assert!(records.contains(&(1, 0, 0, 9)));
+        assert!(records.contains(&(3, 1, 0x409, 9)));
+        assert!(records.iter().all(|r| ![0, 13].contains(&r.3)));
+        let removed = patch_name_table(&patched, &BTreeMap::from([(8, String::new())])).unwrap();
+        for i in 0..read_u16(&removed, 2).unwrap() as usize {
+            assert_ne!(read_u16(&removed, 6 + i * 12 + 6).unwrap(), 8);
+        }
+    }
+
+    #[test]
+    fn format_one_language_tags_survive_name_replacement() {
+        let original = windows_name_table(&[(1, "Original")]);
+        let storage = read_u16(&original, 4).unwrap() as usize;
+        let mut table = original[..storage].to_vec();
+        table.extend_from_slice(&[0, 1, 0, 4, 0, 16]);
+        table.extend_from_slice(&original[storage..]);
+        table.extend_from_slice(&encode_name_str("en", 3));
+        write_u16(&mut table, 0, 1).unwrap();
+        write_u16(&mut table, 4, (storage + 6) as u16).unwrap();
+        let result = patch_name_table(&table, &BTreeMap::from([(1, "New family".into())])).unwrap();
+        let prefix = 6 + read_u16(&result, 2).unwrap() as usize * 12;
+        let strings = read_u16(&result, 4).unwrap() as usize;
+        let tag_offset = read_u16(&result, prefix + 4).unwrap() as usize;
+        assert_eq!(
+            decode_name_str(&result[strings + tag_offset..strings + tag_offset + 4], 3),
+            "en"
+        );
+        assert_eq!(read_name_values(&result).unwrap()[&1], "New family");
+    }
+
+    #[test]
+    fn version_normalizes_and_updates_revision_and_unique_id() {
+        assert_eq!(normalize_version("1").unwrap(), "Version 1.000");
+        assert_eq!(normalize_version("Version 2.5").unwrap(), "Version 2.500");
+        assert_eq!(normalize_version("01.025").unwrap(), "Version 1.025");
+        for value in ["-1", "NaN", "1.1234", "32768.0", "1.x"] {
+            assert!(normalize_version(value).is_err());
+        }
+        let font = geist();
+        let original = inspect_sfnt_names(&font).unwrap();
+        let draft = NameDraft {
+            name_changes: Some(BTreeMap::from([
+                (5, "2.125".into()),
+                (8, "Fount Studio".into()),
+                (13, String::new()),
+            ])),
+            ..NameDraft::default()
+        };
+        let rewritten = apply_name_draft(&font, &draft).unwrap();
+        let names = inspect_sfnt_names(&rewritten).unwrap();
+        assert_eq!(names[&5], "Version 2.125");
+        assert_eq!(names[&3], format!("2.125;Fount;{}", original[&6]));
+        assert_eq!(names[&1], original[&1]);
+        assert_eq!(names[&4], original[&4]);
+        assert_eq!(names[&8], "Fount Studio");
+        assert!(!names.contains_key(&13));
+        assert!(names.contains_key(&16) && names.contains_key(&17));
+        let tables = parse_tables(&rewritten).unwrap();
+        let head = tables.iter().find(|t| &t.tag == b"head").unwrap();
+        assert_eq!(read_u32(&rewritten, head.offset + 4).unwrap(), 139264);
+        assert_eq!(compute_checksum(&rewritten), CHECKSUM_MAGIC);
+    }
+
+    #[test]
+    fn woff2_inspect_and_metadata_round_trip() {
+        let raw = include_bytes!("../web/assets/geist-400.woff2");
+        let original = super::super::inspect_names(raw).unwrap();
+        assert!(original.family.as_deref().unwrap().contains("Geist"));
+        let draft = NameDraft {
+            family: "Fount Geist".into(),
+            subfamily: "Regular".into(),
+            manufacturer: Some("Fount Studio".into()),
+            ..NameDraft::default()
+        };
+        let output = apply_name_draft(&geist(), &draft).unwrap();
+        let names = super::super::inspect_names(&output).unwrap();
+        assert_eq!(names.family.as_deref(), Some("Fount Geist"));
+        assert_eq!(names.manufacturer.as_deref(), Some("Fount Studio"));
+        assert_eq!(names.copyright, original.copyright);
+    }
+
     fn windows_name_table(values: &[(u16, &str)]) -> Vec<u8> {
         let records_end = 6 + values.len() * 12;
         let encoded = values
@@ -683,6 +935,9 @@ mod tests {
         let encoded = encode_name_str("Acme Sans", 3);
         let decoded = decode_name_str(&encoded, 3);
         assert_eq!(decoded, "Acme Sans");
+        assert_eq!(MAC_ROMAN.chars().count(), 128);
+        let mac = "Caf\u{e9} \u{a9}";
+        assert_eq!(decode_name_str(&encode_name_str(mac, 1), 1), mac);
     }
 
     #[test]
@@ -718,7 +973,7 @@ mod tests {
         let patched = patch_name_table(&table, &replacements).unwrap();
         let names = read_name_values(&patched).unwrap();
 
-        assert_eq!(read_u16(&patched, 2).unwrap(), 6);
+        assert_eq!(read_u16(&patched, 2).unwrap(), 12);
         assert_eq!(names.get(&1).unwrap(), "Graphik Web");
         assert_eq!(names.get(&2).unwrap(), "Regular");
         assert_eq!(names.get(&3).unwrap(), "1.000;Fount;GraphikWeb-Regular");
@@ -732,10 +987,7 @@ mod tests {
 
     #[test]
     fn rebuilt_head_directory_checksum_uses_zero_adjustment() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "fonts/gt-america.com/GT_America_Intl_Mono/GT-America-Intl-Mono-400-Variable.ttf",
-        );
-        let font = std::fs::read(path).unwrap();
+        let font = geist();
         let tables = parse_tables(&font).unwrap();
         let name = tables.iter().find(|table| &table.tag == b"name").unwrap();
         let name_data = slice_range(&font, name.offset, name.length).unwrap();
@@ -758,16 +1010,14 @@ mod tests {
 
     #[test]
     fn apply_name_draft_overwrites_existing_windows_names() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "fonts/gt-america.com/GT_America_Intl_Mono/GT-America-Intl-Mono-400-Variable.ttf",
-        );
-        let font = std::fs::read(path).unwrap();
+        let font = geist();
         let draft = NameDraft {
             family: "Renamed Sans".into(),
             subfamily: "Bold".into(),
             full_name: None,
             postscript: None,
             filename: None,
+            ..NameDraft::default()
         };
         let rewritten = apply_name_draft(&font, &draft).unwrap();
         let tables = parse_tables(&rewritten).unwrap();
@@ -789,16 +1039,14 @@ mod tests {
 
     #[test]
     fn apply_name_draft_keeps_cyrillic_family() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "fonts/gt-america.com/GT_America_Intl_Mono/GT-America-Intl-Mono-400-Variable.ttf",
-        );
-        let font = std::fs::read(path).unwrap();
+        let font = geist();
         let draft = NameDraft {
             family: "Гарнитура".into(),
             subfamily: "Regular".into(),
             full_name: None,
             postscript: None,
             filename: None,
+            ..NameDraft::default()
         };
         let rewritten = apply_name_draft(&font, &draft).unwrap();
         let tables = parse_tables(&rewritten).unwrap();

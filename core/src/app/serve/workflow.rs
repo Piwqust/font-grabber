@@ -69,7 +69,11 @@ pub(super) fn scan_stream(state: AppState, request: ScanRequest) -> Response {
         .into_response()
 }
 
-async fn report_for(state: &AppState, url: &str, mode: DiscoveryMode) -> Result<ScanReport> {
+pub(super) async fn report_for(
+    state: &AppState,
+    url: &str,
+    mode: DiscoveryMode,
+) -> Result<ScanReport> {
     let url = normalize_url(url)?;
     if state.hosted {
         validate_public_url(&url).await?;
@@ -96,17 +100,17 @@ async fn report_for(state: &AppState, url: &str, mode: DiscoveryMode) -> Result<
 }
 
 #[derive(Serialize)]
-struct FileResult {
-    id: String,
-    family: String,
-    status: &'static str,
-    stage: &'static str,
-    file: Option<String>,
-    error: Option<String>,
+pub(super) struct FileResult {
+    pub(super) id: String,
+    pub(super) family: String,
+    pub(super) status: &'static str,
+    pub(super) stage: &'static str,
+    pub(super) file: Option<String>,
+    pub(super) error: Option<String>,
 }
 
 impl FileResult {
-    fn failed(id: String, family: String, stage: &'static str, error: String) -> Self {
+    pub(super) fn failed(id: String, family: String, stage: &'static str, error: String) -> Self {
         Self {
             id,
             family,
@@ -201,11 +205,34 @@ async fn prepare_export(state: &AppState, body: GrabBody) -> Result<serde_json::
         .filter(|v| !v.trim().is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| default_output_dir(&report.page_url));
-    let mut download_url: Option<String> = None;
     let filename = zip_filename(&report.page_url);
+    deliver(
+        state,
+        &body.ids,
+        &conversion.converted,
+        results,
+        delivery,
+        output_dir,
+        filename,
+        report.warnings,
+    )
+    .await
+}
+
+pub(super) async fn deliver(
+    state: &AppState,
+    ids: &[String],
+    converted: &[crate::domain::ConvertedFont],
+    mut results: Vec<FileResult>,
+    delivery: &str,
+    output_dir: PathBuf,
+    filename: String,
+    warnings: Vec<String>,
+) -> Result<serde_json::Value> {
+    let mut download_url: Option<String> = None;
     if delivery == "folder" {
-        for font in conversion.converted {
-            match output::save_converted_fonts(std::slice::from_ref(&font), &output_dir, None) {
+        for font in converted {
+            match output::save_converted_fonts(std::slice::from_ref(font), &output_dir, None) {
                 Ok(saved) => results.push(FileResult {
                     id: font.info.id.clone(),
                     family: font.info.family.clone(),
@@ -222,7 +249,7 @@ async fn prepare_export(state: &AppState, body: GrabBody) -> Result<serde_json::
                 )),
             }
         }
-    } else if !conversion.converted.is_empty() {
+    } else if !converted.is_empty() {
         // ZIP goes directly to a temporary file, never a second in-memory archive.
         let mut file = tempfile::Builder::new()
             .prefix("fount-")
@@ -232,7 +259,7 @@ async fn prepare_export(state: &AppState, body: GrabBody) -> Result<serde_json::
         let options: zip::write::FileOptions<'_, ()> =
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
         let mut used = HashSet::new();
-        for font in &conversion.converted {
+        for font in converted {
             let name = unique_name(output::build_output_filename(font), &mut used);
             writer.start_file(&name, options)?;
             writer.write_all(&font.data)?;
@@ -268,17 +295,12 @@ async fn prepare_export(state: &AppState, body: GrabBody) -> Result<serde_json::
         );
         download_url = Some(format!("/api/export/{id}"));
     }
-    results.sort_by_key(|r| {
-        body.ids
-            .iter()
-            .position(|id| id == &r.id)
-            .unwrap_or(usize::MAX)
-    });
+    results.sort_by_key(|r| ids.iter().position(|id| id == &r.id).unwrap_or(usize::MAX));
     let saved_count = results.iter().filter(|r| r.status != "error").count();
     Ok(
-        serde_json::json!({"results":results,"saved_count":saved_count,"requested_count":wanted.len(),
+        serde_json::json!({"results":results,"saved_count":saved_count,"requested_count":ids.iter().collect::<HashSet<_>>().len(),
         "download_url":download_url,"filename":filename,"expires_in":900,
-        "output_dir":if delivery == "folder" {Some(output_dir.display().to_string())} else {None},"warnings":report.warnings}),
+        "output_dir":if delivery == "folder" {Some(output_dir.display().to_string())} else {None},"warnings":warnings}),
     )
 }
 
@@ -411,6 +433,7 @@ mod tests {
             hosted: false,
             scans: Arc::new(Mutex::new(HashMap::new())),
             exports: Arc::new(Mutex::new(HashMap::new())),
+            uploads: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

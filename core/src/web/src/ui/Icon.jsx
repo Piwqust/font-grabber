@@ -16,6 +16,7 @@ const PATHS = {
   ),
   download: <path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" />,
   arrowRight: <path d="M4 12h15m-6-6 6 6-6 6" />,
+  arrowLeft: <path d="M20 12H5m6-6-6 6 6 6" />,
   arrowUpRight: <path d="M7 17 17 7m-7 0h7v7" />,
   chevronDown: <path d="m6 9 6 6 6-6" />,
   chevronRight: <path d="m9 6 6 6-6 6" />,
@@ -41,6 +42,9 @@ const PATHS = {
     </>
   ),
   refresh: <path d="M4 10a8 8 0 1 1 1 8M4 4v6h6" />,
+  undo: <path d="M4 12a8 8 0 1 0 8-8 8 8 0 0 0-6 2.7L4 9M4 4v5h5" />,
+  pencil: <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />,
+  upload: <path d="M12 16V4m-5 5 5-5 5 5M4 15v5h16v-5" />,
   globe: (
     <>
       <circle cx="12" cy="12" r="9" />

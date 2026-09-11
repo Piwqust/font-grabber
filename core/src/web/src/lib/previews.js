@@ -53,6 +53,21 @@ export function previewFamily(id) {
   return `fg-${cssId(id)}`;
 }
 
+/** Drops one face, for a preview whose file is about to go away. */
+export function dropPreview(id) {
+  const face = faces.get(id);
+  if (face) {
+    try {
+      document.fonts.delete(face);
+    } catch {
+      /* The face may already have been removed. */
+    }
+    faces.delete(id);
+  }
+  status.delete(id);
+  emit(id);
+}
+
 async function load(font) {
   if (status.has(font.id)) return;
   const mine = generation;
@@ -61,9 +76,12 @@ async function load(font) {
   try {
     const source = font.sources?.[0];
     if (!source) throw new Error("No source file for this face");
+    // A file chosen on this computer is already local: it is read from its
+    // object URL, not through the proxy the server uses for remote files.
+    const href = source.local ? source.url : fontProxyUrl(source.url);
     const face = new FontFace(
       previewFamily(font.id),
-      `url("${fontProxyUrl(source.url)}")${formatHint(source)}`,
+      `url("${href}")${formatHint(source)}`,
     );
     await face.load();
     if (mine !== generation) return;

@@ -1,12 +1,10 @@
-import { useStore, HOSTED } from "../store.jsx";
+import { useStore } from "../store.jsx";
 import { styleLabel } from "../lib/fonts.js";
 import { useCountUp } from "../lib/motion.js";
 import { Button, IconButton } from "../ui/Button.jsx";
-import { Field } from "../ui/Field.jsx";
 import { Icon } from "../ui/Icon.jsx";
-import { Popover } from "../ui/Popover.jsx";
-import { Segmented } from "../ui/Segmented.jsx";
 import { CopyButton } from "../ui/CopyButton.jsx";
+import { ExportSettings } from "./ExportSettings.jsx";
 
 /**
  * The basket. It lists what is actually going to be exported, so the count in
@@ -66,53 +64,7 @@ export function SelectionPanel() {
       </div>
 
       <div class="selection-actions">
-        <Popover
-          title="Export settings"
-          trigger={
-            <Button
-              size="s"
-              variant="quiet"
-              icon="sliders"
-              disabled={store.grabbing}
-            >
-              Export settings
-            </Button>
-          }
-        >
-          {HOSTED ? null : (
-            <Segmented
-              label="Save as"
-              size="s"
-              options={[
-                { value: "zip", label: "ZIP download" },
-                { value: "folder", label: "Save to folder" },
-              ]}
-              value={store.delivery}
-              disabled={store.busy}
-              onChange={(delivery) => store.patch({ delivery })}
-            />
-          )}
-
-          {store.delivery === "folder" ? (
-            <Field
-              label="Folder on the computer running Fount"
-              placeholder="Default folder"
-              spellcheck={false}
-              autocomplete="off"
-              value={store.outputDir}
-              disabled={store.grabbing}
-              hint="Leave blank to use Fount's fonts folder, grouped by website. Your choice is kept in this tab."
-              onInput={(event) =>
-                store.patch({ outputDir: event.currentTarget.value })
-              }
-            />
-          ) : (
-            <p class="popover-note">
-              ZIP files go to your browser's download folder. You can change
-              that in your browser settings.
-            </p>
-          )}
-        </Popover>
+        <ExportSettings busy={store.grabbing} />
 
         <Button
           variant="solid"
@@ -125,6 +77,20 @@ export function SelectionPanel() {
           {files.length
             ? `${verb} ${files.length} file${files.length === 1 ? "" : "s"}`
             : `${verb} selected`}
+        </Button>
+
+        {/* The other thing that can be done with a selection: edit what the
+            files say about themselves before taking them anywhere. */}
+        <Button
+          id="edit-metadata-selection"
+          variant="outline"
+          full
+          icon="type"
+          disabled={!files.length || store.busy || store.metadata.inspecting}
+          busy={store.metadata.inspecting}
+          onClick={store.openMetadataFromSelection}
+        >
+          Edit metadata
         </Button>
 
         {store.grabStatus ? (

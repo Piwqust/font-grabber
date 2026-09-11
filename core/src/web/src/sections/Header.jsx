@@ -83,7 +83,8 @@ export function Header() {
   const [theme, setTheme] = useTheme();
   const systemDark = useMediaQuery("(prefers-color-scheme: dark)");
   const dark = theme === "system" ? systemDark : theme === "dark";
-  const active = useActiveSection(!store.hasResults);
+  const editing = store.metadata.open;
+  const active = useActiveSection(!store.hasResults && !editing);
 
   // On the landing page the address field is the hero, so a header button that
   // only focuses a field already centred on screen does nothing worth doing.
@@ -111,7 +112,7 @@ export function Header() {
   }, []);
 
   useEffect(() => {
-    if (store.hasResults) return;
+    if (store.hasResults || editing) return;
     const field = document.getElementById("url");
     if (!field || typeof IntersectionObserver !== "function") return;
     const observer = new IntersectionObserver(
@@ -120,7 +121,7 @@ export function Header() {
     );
     observer.observe(field);
     return () => observer.disconnect();
-  }, [store.hasResults]);
+  }, [store.hasResults, editing]);
 
   const home = (event) => {
     event.preventDefault();
@@ -142,8 +143,14 @@ export function Header() {
       </a>
 
       {/* The section links only lead somewhere on the landing page; in the
-          catalogue those sections are not in the document. */}
-      {store.hasResults ? (
+          catalogue and the editor those sections are not in the document. */}
+      {editing ? (
+        <span class="header-context">
+          {store.metadata.fonts.length
+            ? `Editing ${store.metadata.fonts.length} file${store.metadata.fonts.length === 1 ? "" : "s"}`
+            : "Editing metadata"}
+        </span>
+      ) : store.hasResults ? (
         <span class="header-context">{store.collectionLabel}</span>
       ) : (
         <nav class="header-nav" aria-label="Sections">
@@ -183,7 +190,18 @@ export function Header() {
           <Icon name="github" size={18} />
         </a>
 
-        {store.hasResults ? (
+        {editing ? (
+          <Button
+            variant="outline"
+            size="s"
+            icon="arrowLeft"
+            onClick={store.closeMetadata}
+          >
+            {store.metadata.source?.kind === "upload" && !store.hasResults
+              ? "New file"
+              : "Back to results"}
+          </Button>
+        ) : store.hasResults ? (
           <Button variant="outline" size="s" onClick={home}>
             New scan
           </Button>

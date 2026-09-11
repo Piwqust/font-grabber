@@ -96,6 +96,50 @@ export function fontProxyUrl(sourceUrl) {
   return `/api/font?url=${encodeURIComponent(sourceUrl)}`;
 }
 
+/* --- Metadata editor -------------------------------------------------------
+   Two endpoints, both taking a `source` that is either the scan the catalogue
+   came from or files the person chose. See docs/METADATA-EDITOR.md. */
+
+/** Reads one File as base64, without the `data:` prefix. */
+export function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () =>
+      reject(new Error(`Could not read ${file.name} from your computer.`));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Reads the current name tables so the editor starts from real values. */
+export async function inspectMetadata(source) {
+  const response = await fetch("/api/metadata/inspect", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source }),
+  });
+  return readJson(response);
+}
+
+/** Writes the draft into the fonts and returns an export-shaped result. */
+export async function applyMetadata({ source, delivery, outputDir, fonts }) {
+  const response = await fetch("/api/metadata/apply", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source,
+      delivery,
+      output_dir: outputDir || null,
+      fonts,
+    }),
+  });
+  return readJson(response);
+}
+
 export function triggerDownload(blob, filename) {
   const link = document.createElement("a");
   const objectUrl = URL.createObjectURL(blob);

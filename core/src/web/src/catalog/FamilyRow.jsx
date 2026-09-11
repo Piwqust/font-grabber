@@ -81,8 +81,19 @@ export function FamilyRow({ group }) {
         </Button>
       </div>
 
-      {open ? (
-        <div class="family-faces">
+      <div class="family-content" data-open={String(open)}>
+        <div class="family-preview-panel">
+          <button
+            type="button"
+            class="family-strip"
+            onClick={() => store.toggleExpanded(group.key)}
+            aria-label={"Show the " + group.fonts.length + " faces in " + group.name}
+          >
+            <Preview font={representative} text={store.sampleText} />
+          </button>
+        </div>
+        <div class="family-faces-panel">
+          <div class="family-faces">
           {hasVariable ? (
             <Button
               size="s"
@@ -110,17 +121,9 @@ export function FamilyRow({ group }) {
               Show more faces ({limit} of {group.fonts.length})
             </Button>
           ) : null}
+          </div>
         </div>
-      ) : (
-        <button
-          type="button"
-          class="family-strip"
-          onClick={() => store.toggleExpanded(group.key)}
-          aria-label={`Show the ${group.fonts.length} faces in ${group.name}`}
-        >
-          <Preview font={representative} text={store.sampleText} />
-        </button>
-      )}
+      </div>
     </section>
   );
 }

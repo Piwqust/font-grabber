@@ -3,27 +3,45 @@ import { styleLabel } from "../lib/fonts.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Disclosure } from "../ui/Disclosure.jsx";
 
-/** What the server actually managed to export, including what it could not. */
-export function ExportReport() {
+/**
+ * What the server actually managed to export, including what it could not.
+ *
+ * Called without props it reports the catalogue export from the store. The
+ * metadata editor passes its own report, names and actions, because the shape
+ * of the result is the same and there is no reason for a second component.
+ */
+export function ExportReport({
+  title = "Export results",
+  report: given,
+  nameFor,
+  onDismiss,
+  onRetry,
+}) {
   const store = useStore();
-  const report = store.exportReport;
+  const report = given === undefined ? store.exportReport : given;
   if (!report) return null;
 
   const failed = report.results.filter((item) => item.status === "error");
   const verb = report.delivery === "folder" ? "saved" : "prepared";
+  const name =
+    nameFor ||
+    ((item) => {
+      const font = store.fonts.find((f) => f.id === item.id);
+      return `${item.family || ""} ${font ? styleLabel(font) : ""}`;
+    });
 
   return (
-    <section class="report" aria-label="Export results">
+    <section class="report" aria-label={title}>
       <div class="report-head">
-        <h3>Export results</h3>
+        <h3>{title}</h3>
         <p role="status">
           {report.saved_count} of {report.requested_count} files {verb}.
         </p>
         <IconButton
           icon="close"
           size="s"
-          label="Dismiss export results"
-          onClick={() => store.patch({ exportReport: null })}
+          label={`Dismiss ${title.toLowerCase()}`}
+          onClick={onDismiss || (() => store.patch({ exportReport: null }))}
         />
       </div>
 
@@ -33,22 +51,14 @@ export function ExportReport() {
         class="report-details"
       >
         <ul class="report-list">
-          {report.results.map((item) => {
-            const font = store.fonts.find((f) => f.id === item.id);
-            return (
-              <li
-                key={item.id}
-                class={item.status === "error" ? "is-error" : ""}
-              >
-                <span class="report-name">
-                  {item.family} {font ? styleLabel(font) : ""}
-                </span>
-                <span class="report-outcome">
-                  {item.error ? `${item.stage}: ${item.error}` : item.file}
-                </span>
-              </li>
-            );
-          })}
+          {report.results.map((item) => (
+            <li key={item.id} class={item.status === "error" ? "is-error" : ""}>
+              <span class="report-name">{name(item)}</span>
+              <span class="report-outcome">
+                {item.error ? `${item.stage}: ${item.error}` : item.file}
+              </span>
+            </li>
+          ))}
           {(report.warnings || []).map((warning, index) => (
             <li key={`w${index}`}>
               <span class="report-outcome">{warning}</span>
@@ -62,8 +72,8 @@ export function ExportReport() {
           size="s"
           variant="outline"
           icon="refresh"
-          disabled={store.busy}
-          onClick={store.retryFailed}
+          disabled={store.busy || store.metadata.applying}
+          onClick={onRetry || store.retryFailed}
         >
           Retry {failed.length} failed file{failed.length === 1 ? "" : "s"}
         </Button>
