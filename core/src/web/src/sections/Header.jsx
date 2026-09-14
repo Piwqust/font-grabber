@@ -146,9 +146,10 @@ export function Header() {
           catalogue and the editor those sections are not in the document. */}
       {editing ? (
         <span class="header-context">
+          <Icon name="pencil" size={14} />
           {store.metadata.fonts.length
-            ? `Editing ${store.metadata.fonts.length} file${store.metadata.fonts.length === 1 ? "" : "s"}`
-            : "Editing metadata"}
+            ? `Metadata · ${store.metadata.fonts.length} file${store.metadata.fonts.length === 1 ? "" : "s"}`
+            : "Metadata editor"}
         </span>
       ) : store.hasResults ? (
         <span class="header-context">{store.collectionLabel}</span>

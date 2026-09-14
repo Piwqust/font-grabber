@@ -46,6 +46,52 @@ export const LICENSE_PRESETS = [
   { value: "custom", label: "Custom", text: null, url: null },
 ];
 
+/**
+ * Quick-fill presets. Each one writes the family-scope records that go
+ * together in practice, so a licence and a version are one click rather than
+ * four fields on a second tab. The family name is never touched.
+ */
+export const METADATA_PRESETS = [
+  {
+    value: "open-source",
+    label: "Open source",
+    description: "OFL 1.1, version 1.000",
+    fields: {
+      licensePreset: "ofl",
+      license:
+        "This Font Software is licensed under the SIL Open Font License, " +
+        "Version 1.1. This license is available with a FAQ at " +
+        "https://openfontlicense.org",
+      license_url: "https://openfontlicense.org",
+      version: "1.000",
+    },
+  },
+  {
+    value: "apache",
+    label: "Apache 2.0",
+    description: "Apache licence, version 1.000",
+    fields: {
+      licensePreset: "apache",
+      license:
+        "Licensed under the Apache License, Version 2.0. You may obtain a copy " +
+        "of the License at https://www.apache.org/licenses/LICENSE-2.0",
+      license_url: "https://www.apache.org/licenses/LICENSE-2.0",
+      version: "1.000",
+    },
+  },
+  {
+    value: "reserved",
+    label: "All rights reserved",
+    description: "Custom licence, version 1.000",
+    fields: {
+      licensePreset: "custom",
+      license: "This font is not free software. All rights reserved.",
+      license_url: "",
+      version: "1.000",
+    },
+  },
+];
+
 const NON_ASCII = /[^\x20-\x7E]/g;
 // PostScript names may not carry these, and never a space.
 const POSTSCRIPT_FORBIDDEN = /[[\](){}<>/%\s]/g;

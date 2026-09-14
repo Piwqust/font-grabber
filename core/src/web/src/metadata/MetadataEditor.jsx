@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useStore } from "../store.jsx";
 import { hostOf, DEFAULT_SAMPLE } from "../lib/fonts.js";
 import { Preview } from "../catalog/Preview.jsx";
@@ -11,9 +11,11 @@ import { Icon } from "../ui/Icon.jsx";
 import { MetadataIntro } from "../sections/MetadataIntro.jsx";
 import { ExportSettings } from "../catalog/ExportSettings.jsx";
 import { ExportReport } from "../catalog/Reports.jsx";
+import { Popover } from "../ui/Popover.jsx";
 import { MetaField, BeforeAfter } from "./MetaField.jsx";
 import {
   LICENSE_PRESETS,
+  METADATA_PRESETS,
   draftIssues,
   effectiveNames,
   faceDiffers,
@@ -225,8 +227,23 @@ function Bar({
   const original = sharedOriginal(meta.fonts, "family");
   const verb = store.delivery === "folder" ? "Save" : "Write";
 
+  // Sticky border appears after a short scroll so the bar reads as pinned.
+  const barRef = useRef(null);
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => {
+      setScrolled((was) => (was ? scrollY > 8 : scrollY > 32));
+    };
+    addEventListener("scroll", onScroll, { passive: true });
+    return () => removeEventListener("scroll", onScroll);
+  }, []);
+
+  const applyPreset = (preset) => {
+    store.setFamilyField(preset.fields);
+  };
+
   return (
-    <header class="me-bar sp-hero">
+    <header class="me-bar sp-hero" ref={barRef} data-scrolled={String(scrolled)}>
       <div class="me-bar-name">
         <label class="me-bar-label" for="meta-family">
           Family name
@@ -265,6 +282,31 @@ function Bar({
       </div>
 
       <div class="me-bar-actions">
+        <Popover
+          title="Quick fill"
+          trigger={
+            <Button size="s" variant="quiet" icon="spark" disabled={meta.applying}>
+              Presets
+            </Button>
+          }
+        >
+          <div class="me-presets">
+            {METADATA_PRESETS.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                class="me-preset-item"
+                onClick={() => applyPreset(preset)}
+              >
+                <span class="me-preset-label">{preset.label}</span>
+                <span class="me-preset-desc">{preset.description}</span>
+              </button>
+            ))}
+          </div>
+          <p class="popover-note">
+            Fills in licence and version. The family name stays as you typed it.
+          </p>
+        </Popover>
         {families.length > 1 ? (
           <Segmented
             label="Family"
@@ -735,4 +777,3 @@ function presetOf(license) {
     null
   );
 }
-
