@@ -2232,11 +2232,14 @@
   .me-bar-stats { flex-wrap: wrap; gap: 0.5rem; }
   .me-bar-actions { justify-content: flex-end; }
   .me-work { grid-template-columns: 1fr; gap: 1rem; }
-  .me-rail { position: static; flex-direction: row; overflow-x: auto; overflow-y: visible; max-height: none; gap: 4px; padding-bottom: 0.5rem; border-bottom: 1px solid var(--line); }
-  .me-rail-item { grid-template-columns: auto auto; gap: 0.35rem; padding: 0.5rem 0.65rem; white-space: nowrap; min-width: max-content; }
+  .me-rail { position: static; flex-direction: row; overflow: hidden; max-height: none; gap: 4px; padding-bottom: 0.5rem; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .me-rail-item { grid-template-columns: auto auto auto; gap: 0.45rem; padding: 0.5rem 0.7rem; white-space: nowrap; }
   .me-rail-sample { max-width: 28px; font-size: 18px; }
   .me-rail-sample .preview, .me-rail-sample .preview-wrap { font-size: 18px !important; }
-  .me-rail-text { display: none; }
+  /* The rail lies on its side here, but a face still has to be nameable: the
+     style name stays and only the file name goes. */
+  .me-rail-text { display: grid; }
+  .me-rail-style { white-space: nowrap; }
   .me-rail-file { display: none; }
   .me-face-records { grid-template-columns: 1fr; }
   .me-records-grid { grid-template-columns: 1fr; }
@@ -2244,7 +2247,10 @@
 @media (max-width: 600px) {
   .me { padding-left: 1rem; padding-right: 1rem; }
   .me-bar { padding-top: 1.5rem; flex-direction: column; align-items: stretch; }
-  .me-bar-input { font-size: clamp(1.5rem, 10vw, 2.2rem); }
+  /* The reset chip drops under the name instead of eating into it: sharing a
+     line here truncated the family name people are reading. */
+  .me-bar-field { flex-direction: column; align-items: flex-start; gap: 0.45rem; }
+  .me-bar-input { width: 100%; font-size: clamp(1.5rem, 10vw, 2.2rem); }
   .me-bar-actions { justify-content: flex-end; }
   .me-bar-stats { flex-wrap: wrap; gap: 0.5rem; }
   .me-specimen-controls { flex-direction: column; align-items: stretch; }
