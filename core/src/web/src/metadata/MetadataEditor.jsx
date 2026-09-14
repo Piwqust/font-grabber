@@ -7,6 +7,7 @@ import { Slider } from "../ui/Slider.jsx";
 import { Spinner } from "../ui/Spinner.jsx";
 import { Segmented } from "../ui/Segmented.jsx";
 import { Checkbox } from "../ui/Checkbox.jsx";
+import { Icon } from "../ui/Icon.jsx";
 import { MetadataIntro } from "../sections/MetadataIntro.jsx";
 import { ExportSettings } from "../catalog/ExportSettings.jsx";
 import { ExportReport } from "../catalog/Reports.jsx";
@@ -24,11 +25,17 @@ import {
 } from "./derive.js";
 
 // ---------------------------------------------------------------------------
-// MetadataEditor -- specimen-sheet layout.
+// MetadataEditor -- an inspector, not a scrolling form.
 //
-// The global Header already handles identity, back-button, and theme. This
-// component only draws the content area: a secondary action bar, the family
-// headline, a control strip, proof rows, family records, and a status footer.
+// The page is a workspace with a fixed frame: a bar that always says what is
+// being written and offers the one action, a rail of the faces being edited,
+// and one face open at a time set large in its own type. Family-wide records
+// live on a second tab, because they are a different job from naming a face.
+//
+// Layout classes are prefixed `me-`. A few older names (.sp-proof, .sp-proofs,
+// .sp-records-toggle, .sp-hero-stats) are kept where they still describe the
+// same thing, so the QA scripts keep their hold on the parts that did not
+// change meaning.
 // ---------------------------------------------------------------------------
 
 /** Group key for metadata fonts: uses names.family, not the catalogue familyKey. */
@@ -40,7 +47,7 @@ export function MetadataEditor() {
   const store = useStore();
   const meta = store.metadata;
 
-  // All hooks before any conditional return.
+  // Every hook runs before the loading and empty branches below.
   const issues = useMemo(
     () => draftIssues(meta),
     [meta.fonts, meta.familyDraft, meta.faceDrafts],
@@ -48,15 +55,29 @@ export function MetadataEditor() {
 
   const families = useMemo(() => {
     const seen = new Map();
-    for (const f of meta.fonts) {
-      const key = metaFamily(f);
-      if (!seen.has(key)) seen.set(key, sourceFamily(f) || "Unnamed");
+    for (const font of meta.fonts) {
+      const key = metaFamily(font);
+      if (!seen.has(key)) seen.set(key, sourceFamily(font) || "Unnamed");
     }
     return [...seen.entries()].map(([key, label]) => ({ key, label }));
   }, [meta.fonts]);
 
-  const [activeKey, setActiveKey] = useState("");
-  const [proofSize, setProofSize] = useState(42);
+  const [activeFamily, setActiveFamily] = useState("");
+  const [pickedId, setPickedId] = useState(null);
+  const [proofSize, setProofSize] = useState(56);
+  const [tab, setTab] = useState("faces");
+
+  const fonts = useMemo(
+    () => meta.fonts.filter((font) => metaFamily(font) === activeFamily),
+    [meta.fonts, activeFamily],
+  );
+
+  // The open face, resolved rather than stored: a family switch, a reload or a
+  // file that failed to read must never leave the rail pointing at nothing.
+  const openId = fonts.some((font) => font.id === pickedId)
+    ? pickedId
+    : fonts[0]?.id || null;
+  const open = fonts.find((font) => font.id === openId) || null;
 
   useEffect(() => {
     document.getElementById("metadata")?.focus({ preventScroll: true });
@@ -68,210 +89,281 @@ export function MetadataEditor() {
   }, [proofSize]);
 
   useEffect(() => {
-    if (families.length && !families.some((f) => f.key === activeKey)) {
-      setActiveKey(families[0].key);
+    if (families.length && !families.some((f) => f.key === activeFamily)) {
+      setActiveFamily(families[0].key);
     }
-  }, [families, activeKey]);
+  }, [families, activeFamily]);
 
-  // Derived values that depend on hooks above.
   const first = meta.fonts[0];
   const family = first ? effectiveNames(meta, first).family : "";
   const source = meta.source;
-  const originLabel =
+  const origin =
     source?.kind === "upload"
       ? "Your files"
       : source?.url
         ? hostOf(source.url)
         : "";
 
-  // --- Loading / empty states (after all hooks) ---
   if (meta.inspecting) {
     return (
-      <main class="metadata" id="metadata" tabindex="-1">
-        <p class="metadata-loading" role="status">
+      <main class="metadata me" id="metadata" tabindex="-1">
+        <p class="metadata-loading me-loading" role="status">
           <Spinner size={18} />
-          {meta.status?.message || "Reading the names…"}
+          {meta.status?.message || "Reading the names\u2026"}
         </p>
       </main>
     );
   }
+
   if (!meta.fonts.length) {
     return (
-      <main class="metadata" id="metadata" tabindex="-1">
+      <main class="metadata me" id="metadata" tabindex="-1">
         <EmptyEditor />
       </main>
     );
   }
 
-  const fonts = meta.fonts.filter((f) => metaFamily(f) === activeKey);
-  const changing = meta.fonts.filter((f) => faceDiffers(meta, f)).length;
+  const changing = meta.fonts.filter((font) => faceDiffers(meta, font)).length;
   const total = meta.fonts.length;
 
   return (
-    <main class="metadata metadata-specimen" id="metadata" tabindex="-1">
-      <ActionBar count={fonts.length} issues={issues} />
-      <FamilyHeadline family={family} total={total} changing={changing} origin={originLabel} />
-      <ControlStrip
+    <main class="metadata me metadata-specimen" id="metadata" tabindex="-1">
+      <Bar
+        family={family}
+        total={total}
+        changing={changing}
+        origin={origin}
+        issues={issues}
         families={families}
-        activeKey={activeKey}
-        setActiveKey={setActiveKey}
-        proofSize={proofSize}
-        setProofSize={setProofSize}
+        activeFamily={activeFamily}
+        setActiveFamily={setActiveFamily}
       />
-      <section class="sp-proofs" aria-label="Faces">
-        {fonts.map((font) => (
-          <ProofRow key={font.id} font={font} issues={issues} />
-        ))}
-      </section>
-      <InspectFailures />
-      <FamilyRecords issues={issues} />
-      <StatusFooter changing={changing} total={total} />
+
+      <Issues issues={issues} />
+
+      <div class="me-tabs" role="tablist" aria-label="What is being edited">
+        <button
+          type="button"
+          role="tab"
+          class="me-tab"
+          id="meta-tab-faces"
+          aria-selected={String(tab === "faces")}
+          aria-controls="meta-panel-faces"
+          data-active={String(tab === "faces")}
+          onClick={() => setTab("faces")}
+        >
+          Faces
+          <span class="me-tab-count">{total}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="me-tab sp-records-toggle"
+          id="meta-tab-records"
+          aria-selected={String(tab === "records")}
+          aria-expanded={String(tab === "records")}
+          aria-controls="meta-panel-records"
+          data-active={String(tab === "records")}
+          onClick={() => setTab("records")}
+        >
+          Family records
+        </button>
+      </div>
+
+      {tab === "faces" ? (
+        <div
+          class="me-work"
+          id="meta-panel-faces"
+          role="tabpanel"
+          aria-labelledby="meta-tab-faces"
+        >
+          <Rail fonts={fonts} openId={openId} onPick={setPickedId} />
+          <section class="sp-proofs me-stage" aria-label="Faces">
+            {open ? (
+              <Face
+                key={open.id}
+                font={open}
+                issues={issues}
+                proofSize={proofSize}
+                setProofSize={setProofSize}
+              />
+            ) : null}
+          </section>
+        </div>
+      ) : (
+        <Records issues={issues} />
+      )}
+
+      <Failures />
+      <Footer changing={changing} total={total} />
     </main>
   );
 }
 
-/* -- Files that could not be read ---------------------------------------- */
+/* -- The bar -------------------------------------------------------------- */
 
 /**
- * Named here rather than only in the empty editor: when some files were read
- * and others were not, the ones that failed still have to be accounted for,
- * or a person is left comparing counts to work out what is missing.
+ * What is being written, and the only action that writes it. It stays against
+ * the header while the stage scrolls, so the family name and the button are
+ * never somewhere further up the page.
  */
-function InspectFailures() {
-  const store = useStore();
-  const failures = store.metadata.failures;
-  if (!failures.length) return null;
-
-  return (
-    <section class="metadata-failures" aria-labelledby="meta-failures-title">
-      <h3 id="meta-failures-title">Could not be read</h3>
-      <ul>
-        {failures.map((failure) => (
-          <li key={failure.id}>
-            <span class="metadata-failure-name">
-              {failure.file || failure.id}
-            </span>
-            <span class="metadata-failure-why">{failure.error}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/* -- Action bar (below the global Header) -------------------------------- */
-
-function ActionBar({ count, issues }) {
-  const store = useStore();
-  const meta = store.metadata;
-  const verb = store.delivery === "folder" ? "Save" : "Write";
-  return (
-    <>
-      {issues.length ? (
-        <div class="metadata-issues" role="alert">
-          <strong>
-            {issues.length} field{issues.length === 1 ? "" : "s"} need
-            attention:
-          </strong>
-          <ul>
-            {issues.map((issue) => (
-              <li key={issue.key}>{issue.message}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      <div class="sp-action-bar">
-        <ExportSettings busy={meta.applying} />
-        <Button size="s" variant="outline" onClick={store.closeMetadata}>Back</Button>
-        <Button
-          id="metadata-apply"
-          size="s"
-          variant="solid"
-          busy={meta.applying}
-          disabled={!count || meta.applying || issues.length > 0}
-          onClick={() => store.applyMetadata()}
-        >
-          {verb} {count} {count === 1 ? "copy" : "copies"}
-        </Button>
-      </div>
-    </>
-  );
-}
-
-/* -- Family headline ------------------------------------------------------ */
-
-function FamilyHeadline({ family, total, changing, origin }) {
+function Bar({
+  family,
+  total,
+  changing,
+  origin,
+  issues,
+  families,
+  activeFamily,
+  setActiveFamily,
+}) {
   const store = useStore();
   const meta = store.metadata;
   const typed = meta.familyDraft.family;
   const edited = typed !== undefined;
   const value = edited ? typed : family;
   const original = sharedOriginal(meta.fonts, "family");
+  const verb = store.delivery === "folder" ? "Save" : "Write";
 
   return (
-    <section class="sp-hero">
-      <label class="sp-hero-label" for="meta-family">Family name</label>
-      <input
-        id="meta-family"
-        class="sp-hero-input"
-        value={value}
-        placeholder="Family name"
-        spellcheck={false}
-        autocomplete="off"
-        disabled={meta.applying}
-        onInput={(e) => store.setFamilyField("family", e.currentTarget.value)}
-      />
-      <div class="sp-hero-stats">
-        <span>{total} face{total === 1 ? "" : "s"}</span>
-        <span>{changing} changing</span>
-        {origin ? <span>{origin}</span> : null}
+    <header class="me-bar sp-hero">
+      <div class="me-bar-name">
+        <label class="me-bar-label" for="meta-family">
+          Family name
+        </label>
+        <div class="me-bar-field">
+          <input
+            id="meta-family"
+            class="me-bar-input sp-hero-input"
+            value={value}
+            placeholder="Family name"
+            spellcheck={false}
+            autocomplete="off"
+            disabled={meta.applying}
+            onInput={(event) =>
+              store.setFamilyField("family", event.currentTarget.value)
+            }
+          />
+          {edited ? (
+            <button
+              type="button"
+              class="me-bar-reset sp-hero-reset"
+              onClick={() => store.resetField("family", "family")}
+            >
+              <Icon name="undo" size={13} />
+              Reset to {original || "not set"}
+            </button>
+          ) : null}
+        </div>
+        <p class="me-bar-stats sp-hero-stats">
+          <span>
+            {total} face{total === 1 ? "" : "s"}
+          </span>
+          <span data-live={String(changing > 0)}>{changing} changing</span>
+          {origin ? <span>{origin}</span> : null}
+        </p>
       </div>
-      {edited ? (
-        <button type="button" class="sp-hero-reset" onClick={() => store.resetField("family", "family")}>
-          Reset to {original || "not set"}
-        </button>
-      ) : null}
-    </section>
+
+      <div class="me-bar-actions">
+        {families.length > 1 ? (
+          <Segmented
+            label="Family"
+            size="s"
+            options={families.map((item) => ({
+              value: item.key,
+              label: item.label,
+            }))}
+            value={activeFamily}
+            onChange={setActiveFamily}
+          />
+        ) : null}
+        <ExportSettings busy={meta.applying} />
+        <Button size="s" variant="outline" onClick={store.closeMetadata}>
+          Back
+        </Button>
+        <Button
+          id="metadata-apply"
+          size="s"
+          variant="solid"
+          busy={meta.applying}
+          disabled={!total || meta.applying || issues.length > 0}
+          onClick={() => store.applyMetadata()}
+        >
+          {verb} {total} {total === 1 ? "copy" : "copies"}
+        </Button>
+      </div>
+    </header>
   );
 }
 
-/* -- Control strip -------------------------------------------------------- */
-
-function ControlStrip({ families, activeKey, setActiveKey, proofSize, setProofSize }) {
-  const store = useStore();
-
+function Issues({ issues }) {
+  if (!issues.length) return null;
   return (
-    <div class="sp-strip">
-      {families.length > 1 ? (
-        <Segmented
-          label="Family"
-          size="s"
-          options={families.map((f) => ({
-            value: f.key,
-            label: f.label,
-            badge: store.metadata.fonts.filter((x) => metaFamily(x) === f.key).length,
-          }))}
-          value={activeKey}
-          onChange={setActiveKey}
-        />
-      ) : null}
-      <div class="sp-strip-spacer" />
-      <label class="sp-proof-text">
-        <span class="field-label">Proof text</span>
-        <input
-          value={store.sample}
-          placeholder={DEFAULT_SAMPLE}
-          onInput={(e) => store.patch({ sample: e.currentTarget.value })}
-        />
-      </label>
-      <Slider label="Size" value={proofSize} min={18} max={96} step={1} suffix="px" onInput={setProofSize} />
+    <div class="metadata-issues me-issues" role="alert">
+      <strong>
+        {issues.length} field{issues.length === 1 ? "" : "s"} need attention:
+      </strong>
+      <ul>
+        {issues.map((issue) => (
+          <li key={issue.key}>{issue.message}</li>
+        ))}
+      </ul>
     </div>
   );
 }
 
-/* -- Proof row ------------------------------------------------------------ */
+/* -- The rail ------------------------------------------------------------- */
 
-function ProofRow({ font, issues }) {
+/**
+ * The faces, each set in its own type. Selection is a filled block rather than
+ * an outline, and a face the draft touches carries a mark, so the rail answers
+ * "what is going to change" without opening anything.
+ */
+function Rail({ fonts, openId, onPick }) {
+  const store = useStore();
+  const meta = store.metadata;
+
+  return (
+    <div class="me-rail" role="tablist" aria-label="Faces" aria-orientation="vertical">
+      {fonts.map((font) => {
+        const label = faceLabel(meta, font);
+        const differs = faceDiffers(meta, font);
+        const active = font.id === openId;
+        const preview = meta.previews[font.id];
+        return (
+          <button
+            type="button"
+            role="tab"
+            key={font.id}
+            class="me-rail-item"
+            data-active={String(active)}
+            data-differs={String(differs)}
+            aria-selected={String(active)}
+            onClick={() => onPick(font.id)}
+          >
+            <span class="me-rail-mark" aria-hidden="true" />
+            <span class="me-rail-sample">
+              {preview ? (
+                <Preview font={preview} text="Aa" />
+              ) : (
+                <span class="me-rail-sample-fallback">Aa</span>
+              )}
+            </span>
+            <span class="me-rail-text">
+              <span class="me-rail-style">{label}</span>
+              <span class="me-rail-file">{fileStem(font.file)}</span>
+            </span>
+            {differs ? <span class="me-rail-dot" title="Edited" /> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* -- One face ------------------------------------------------------------- */
+
+function Face({ font, issues, proofSize, setProofSize }) {
   const store = useStore();
   const meta = store.metadata;
   const draft = meta.faceDrafts[font.id] || {};
@@ -313,90 +405,121 @@ function ProofRow({ font, issues }) {
       value={draft[key]}
       error={issueFor(issues, key + ":" + font.id)}
       disabled={meta.applying}
-      onChange={(v) => store.setFaceField(font.id, key, v)}
+      onChange={(next) => store.setFaceField(font.id, key, next)}
       onReset={() => store.resetField("face", key, font.id)}
       {...extra}
     />
   );
 
   return (
-    <article class="sp-proof" data-differs={String(differs)}>
-      <div class="sp-proof-left">
-        <div class="sp-proof-specimen">
+    <article class="sp-proof me-face" data-differs={String(differs)}>
+      <div class="me-specimen">
+        <div class="me-specimen-type">
           {preview ? (
             <Preview font={preview} text={sample} />
           ) : (
-            <p class="preview is-failed" style={"font-size:var(--proof-size,42px)"}>{sample}</p>
+            <p
+              class="preview is-failed"
+              style="font-size:var(--proof-size,56px)"
+            >
+              {sample}
+            </p>
           )}
         </div>
-        <div class="sp-proof-caption">
-          <span class="sp-proof-style">{label}</span>
-          <span class="sp-proof-diff">
-            <BeforeAfter before={stem + "." + ext} after={eff.filename + "." + ext} />
-          </span>
-        </div>
-      </div>
-      <div class="sp-proof-divider" aria-hidden="true" />
-      <div class="sp-proof-right">
-        <div class="sp-proof-manual">
-          <Checkbox
-            checked={manual}
-            disabled={meta.applying}
-            label={"Edit the names of " + label + " by hand"}
-            onChange={toggleManual}
+        <div class="me-specimen-controls">
+          <label class="me-sample">
+            <span class="field-label">Proof text</span>
+            <input
+              value={store.sample}
+              placeholder={DEFAULT_SAMPLE}
+              onInput={(event) =>
+                store.patch({ sample: event.currentTarget.value })
+              }
+            />
+          </label>
+          <Slider
+            label="Size"
+            value={proofSize}
+            min={18}
+            max={120}
+            step={1}
+            suffix="px"
+            onInput={setProofSize}
           />
         </div>
-        {manual ? (
-          <>
-            {faceField("subfamily", "Style name", {
-              original: sourceName(font, "subfamily"),
-            })}
-            {faceField("full_name", "Full name", {
-              original: sourceName(font, "full_name"),
-            })}
-            {faceField("postscript", "PostScript name", {
-              original: sourceName(font, "postscript"),
-              mono: true,
-              hint: "ASCII, no spaces, at most 63 characters.",
-            })}
-            {faceField("filename", "File name", {
-              original: stem,
-              mono: true,
-              hint: "Without the extension.",
-            })}
-          </>
-        ) : (
-          <>
-        <div class="sp-proof-field">
-          <span class="sp-proof-field-label">Style name</span>
-          <span class="sp-proof-field-value">{eff.subfamily || "not set"}</span>
-        </div>
-        <div class="sp-proof-field">
-          <span class="sp-proof-field-label">Full name</span>
-          <span class="sp-proof-field-value">{eff.full_name || "not set"}</span>
-        </div>
-        <div class="sp-proof-field is-mono">
-          <span class="sp-proof-field-label">PostScript</span>
-          <span class="sp-proof-field-value">{eff.postscript || "not set"}</span>
-        </div>
-        <div class="sp-proof-field is-mono">
-          <span class="sp-proof-field-label">File name</span>
-          <span class="sp-proof-field-value">{eff.filename + "." + ext}</span>
-        </div>
-          </>
-        )}
       </div>
+
+      <div class="me-face-head">
+        <h2 class="me-face-title">{label}</h2>
+        <p class="me-face-file sp-proof-diff">
+          <BeforeAfter
+            before={stem + "." + ext}
+            after={eff.filename + "." + ext}
+          />
+        </p>
+      </div>
+
+      <div class="me-face-switch">
+        <Checkbox
+          checked={manual}
+          disabled={meta.applying}
+          label={"Edit the names of " + label + " by hand"}
+          onChange={toggleManual}
+        />
+        <p class="me-face-switch-note">
+          {manual
+            ? "These names stay as typed when the family is renamed."
+            : "These names follow the family name."}
+        </p>
+      </div>
+
+      {manual ? (
+        <div class="me-face-fields">
+          {faceField("subfamily", "Style name", {
+            original: sourceName(font, "subfamily"),
+          })}
+          {faceField("full_name", "Full name", {
+            original: sourceName(font, "full_name"),
+          })}
+          {faceField("postscript", "PostScript name", {
+            original: sourceName(font, "postscript"),
+            mono: true,
+            hint: "ASCII, no spaces, at most 63 characters.",
+          })}
+          {faceField("filename", "File name", {
+            original: stem,
+            mono: true,
+            hint: "Without the extension.",
+          })}
+        </div>
+      ) : (
+        <dl class="me-face-records">
+          <Record label="Style name" value={eff.subfamily} />
+          <Record label="Full name" value={eff.full_name} />
+          <Record label="PostScript" value={eff.postscript} mono />
+          <Record label="File name" value={eff.filename + "." + ext} mono />
+        </dl>
+      )}
     </article>
+  );
+}
+
+/** One derived name. Kept on the old class names: it is the same record. */
+function Record({ label, value, mono = false }) {
+  return (
+    <div class={"sp-proof-field me-record" + (mono ? " is-mono" : "")}>
+      <dt class="sp-proof-field-label me-record-label">{label}</dt>
+      <dd class="sp-proof-field-value me-record-value">{value || "not set"}</dd>
+    </div>
   );
 }
 
 /* -- Family records ------------------------------------------------------- */
 
-function FamilyRecords({ issues }) {
+function Records({ issues }) {
   const store = useStore();
   const meta = store.metadata;
   const fonts = meta.fonts;
-  const [open, setOpen] = useState(true);
 
   const field = (key, label, extra = {}) => (
     <MetaField
@@ -407,77 +530,138 @@ function FamilyRecords({ issues }) {
       hint={variesHint(fonts, key)}
       error={issueFor(issues, key)}
       disabled={meta.applying}
-      onChange={(v) => store.setFamilyField(key, v)}
+      onChange={(next) => store.setFamilyField(key, next)}
       onReset={() => store.resetField("family", key)}
       {...extra}
     />
   );
 
   const license = valueOf(meta, fonts, "license");
-  const preset = meta.familyDraft.licensePreset || presetOf(license) || "custom";
+  const preset =
+    meta.familyDraft.licensePreset || presetOf(license) || "custom";
   const choosePreset = (value) => {
-    const chosen = LICENSE_PRESETS.find((p) => p.value === value);
-    if (!chosen || !chosen.text) { store.setFamilyField({ licensePreset: value }); return; }
-    store.setFamilyField({ licensePreset: value, license: chosen.text, license_url: chosen.url });
+    const chosen = LICENSE_PRESETS.find((item) => item.value === value);
+    if (!chosen || !chosen.text) {
+      store.setFamilyField({ licensePreset: value });
+      return;
+    }
+    store.setFamilyField({
+      licensePreset: value,
+      license: chosen.text,
+      license_url: chosen.url,
+    });
   };
 
   return (
-    <section class="sp-records">
-      <button type="button" class="sp-records-toggle" aria-expanded={String(open)} onClick={() => setOpen(!open)}>
-        <span class="sp-records-chevron" aria-hidden="true">{open ? "▾" : "▸"}</span>
-        <span class="field-label">Family records</span>
-      </button>
-      {open ? (
-        <div class="sp-records-grid">
-          <div class="sp-records-col">
-            <h3 class="field-label">Authorship</h3>
-            {field("manufacturer", "Author or foundry")}
-            {field("designer", "Designer")}
-            {field("vendor_url", "Foundry website", { placeholder: "https://example.com" })}
-            {field("designer_url", "Designer website", { placeholder: "https://example.com" })}
-          </div>
-          <div class="sp-records-col">
-            <h3 class="field-label">Legal</h3>
-            <Segmented label="Licence" size="s" options={LICENSE_PRESETS} value={preset} disabled={meta.applying} onChange={choosePreset} />
-            {field("copyright", "Copyright", { multiline: true, rows: 2 })}
-            {field("trademark", "Trademark")}
-            {field("license", "Licence text", { multiline: true, rows: 2 })}
-            {field("license_url", "Licence address", { placeholder: "https://example.com/license" })}
-          </div>
-          <div class="sp-records-col">
-            <h3 class="field-label">Version and description</h3>
-            {field("version", "Version", { placeholder: "1.000", mono: true })}
-            {field("description", "Description", { multiline: true, rows: 3 })}
-          </div>
-        </div>
-      ) : null}
+    <div
+      class="me-records sp-records"
+      id="meta-panel-records"
+      role="tabpanel"
+      aria-labelledby="meta-tab-records"
+    >
+      <p class="me-records-note">
+        Written into every file in this selection. A field left alone keeps
+        whatever the font already said.
+      </p>
+      <div class="me-records-grid sp-records-grid">
+        <section class="me-records-col sp-records-col">
+          <h3 class="me-records-title">Authorship</h3>
+          {field("manufacturer", "Author or foundry")}
+          {field("designer", "Designer")}
+          {field("vendor_url", "Foundry website", {
+            placeholder: "https://example.com",
+          })}
+          {field("designer_url", "Designer website", {
+            placeholder: "https://example.com",
+          })}
+        </section>
+        <section class="me-records-col sp-records-col">
+          <h3 class="me-records-title">Legal</h3>
+          <Segmented
+            label="Licence"
+            size="s"
+            options={LICENSE_PRESETS}
+            value={preset}
+            disabled={meta.applying}
+            onChange={choosePreset}
+          />
+          {field("copyright", "Copyright", { multiline: true, rows: 2 })}
+          {field("trademark", "Trademark")}
+          {field("license", "Licence text", { multiline: true, rows: 3 })}
+          {field("license_url", "Licence address", {
+            placeholder: "https://example.com/license",
+          })}
+        </section>
+        <section class="me-records-col sp-records-col">
+          <h3 class="me-records-title">Version and description</h3>
+          {field("version", "Version", { placeholder: "1.000", mono: true })}
+          {field("description", "Description", { multiline: true, rows: 4 })}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+/* -- Files that could not be read ---------------------------------------- */
+
+function Failures() {
+  const store = useStore();
+  const failures = store.metadata.failures;
+  if (!failures.length) return null;
+
+  return (
+    <section
+      class="metadata-failures me-failures"
+      aria-labelledby="meta-failures-title"
+    >
+      <h3 id="meta-failures-title">Could not be read</h3>
+      <ul>
+        {failures.map((failure) => (
+          <li key={failure.id}>
+            <span class="metadata-failure-name">
+              {failure.file || failure.id}
+            </span>
+            <span class="metadata-failure-why">{failure.error}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
 
-/* -- Status footer -------------------------------------------------------- */
+/* -- Footer --------------------------------------------------------------- */
 
-function StatusFooter({ changing, total }) {
+function Footer({ changing, total }) {
   const store = useStore();
   const meta = store.metadata;
   const status = meta.status;
   const nameFor = (item) => {
-    const font = meta.fonts.find((c) => c.id === item.id);
+    const font = meta.fonts.find((candidate) => candidate.id === item.id);
     if (!font) return item.family || item.id;
     return effectiveNames(meta, font).family + " " + faceLabel(meta, font);
   };
+
   return (
-    <footer class="sp-footer">
-      <p class="sp-footer-status" role="status">
+    <footer class="me-footer sp-footer">
+      <p class="me-footer-status sp-footer-status" role="status">
         {status
           ? status.message
           : changing
-            ? changing + " of " + total + " files will be rewritten. Originals are never touched."
+            ? changing +
+              " of " +
+              total +
+              " files will be rewritten. Originals are never touched."
             : "No changes yet. Originals are never touched."}
       </p>
       {meta.report ? (
-        <>
-          <ExportReport title="Metadata results" report={meta.report} nameFor={nameFor} onDismiss={store.editMetadataAgain} onRetry={store.retryMetadata} />
+        <div class="me-footer-report">
+          <ExportReport
+            title="Metadata results"
+            report={meta.report}
+            nameFor={nameFor}
+            onDismiss={store.editMetadataAgain}
+            onRetry={store.retryMetadata}
+          />
           <Button
             variant="outline"
             size="s"
@@ -486,7 +670,7 @@ function StatusFooter({ changing, total }) {
           >
             Edit again
           </Button>
-        </>
+        </div>
       ) : null}
     </footer>
   );
@@ -498,18 +682,23 @@ function EmptyEditor() {
   const store = useStore();
   const meta = store.metadata;
   return (
-    <div class="metadata-empty">
+    <div class="metadata-empty me-empty">
       {meta.status ? (
-        <p class={"status status-" + (meta.status.kind || "plain")} role={meta.status.kind === "error" ? "alert" : "status"}>
+        <p
+          class={"status status-" + (meta.status.kind || "plain")}
+          role={meta.status.kind === "error" ? "alert" : "status"}
+        >
           {meta.status.message}
         </p>
       ) : null}
       {meta.failures.length ? (
         <ul class="metadata-empty-failures">
-          {meta.failures.map((f) => (
-            <li key={f.id}>
-              <span class="metadata-failure-name">{f.file || f.id}</span>
-              <span class="metadata-failure-why">{f.error}</span>
+          {meta.failures.map((failure) => (
+            <li key={failure.id}>
+              <span class="metadata-failure-name">
+                {failure.file || failure.id}
+              </span>
+              <span class="metadata-failure-why">{failure.error}</span>
             </li>
           ))}
         </ul>
@@ -522,19 +711,28 @@ function EmptyEditor() {
 /* -- Helpers -------------------------------------------------------------- */
 
 function sharedOriginal(fonts, key) {
-  const values = new Set(fonts.map((f) => sourceName(f, key) ?? ""));
-  return values.size === 1 ? ([...values][0] || null) : null;
+  const values = new Set(fonts.map((font) => sourceName(font, key) ?? ""));
+  return values.size === 1 ? [...values][0] || null : null;
 }
+
 function variesHint(fonts, key) {
   if (fonts.length < 2) return undefined;
-  const values = new Set(fonts.map((f) => sourceName(f, key) ?? ""));
-  return values.size > 1 ? "The files do not agree on this. Editing it sets all of them." : undefined;
+  const values = new Set(fonts.map((font) => sourceName(font, key) ?? ""));
+  return values.size > 1
+    ? "The files do not agree on this. Editing it sets all of them."
+    : undefined;
 }
+
 function valueOf(meta, fonts, key) {
   const typed = meta.familyDraft[key];
   return typed === undefined ? sharedOriginal(fonts, key) : typed;
 }
+
 function presetOf(license) {
   if (!license) return null;
-  return LICENSE_PRESETS.find((p) => p.text && p.text === license)?.value || null;
+  return (
+    LICENSE_PRESETS.find((item) => item.text && item.text === license)?.value ||
+    null
+  );
 }
+
