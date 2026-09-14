@@ -468,9 +468,14 @@ const fixture = http.createServer((request, response) => {
       );
 
     await page.locator("#meta-family").fill(FAMILY);
+    await page.locator(".sp-records-toggle").click();
+    await page.locator("#meta-panel-records").waitFor();
     await page.locator("#meta-manufacturer").fill(MANUFACTURER);
     await page.locator("#meta-license").fill(LICENCE);
     await page.locator("#meta-version").fill(VERSION);
+    // Switch back to the Faces tab to check the derived names.
+    await page.locator("#meta-tab-faces").click();
+    await page.locator(".sp-proof").first().waitFor();
     check(
       (await page.locator(".sp-proofs").innerText()).includes(STEM),
       `The rename derives ${STEM} in the browser`,
