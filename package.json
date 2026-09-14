@@ -1,6 +1,8 @@
 {
   "dependencies": {
+    "@floating-ui/dom": "1.6.13",
     "motion": "13.2.0",
+    "open-props": "1.7.23",
     "playwright": "^1.63.0",
     "preact": "10.28.3"
   },

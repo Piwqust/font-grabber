@@ -84,6 +84,7 @@ pub(super) async fn report_for(
         .lock()
         .await
         .get(&key)
+        .filter(|scan| scan.created.elapsed() < SCAN_TTL)
         .map(|scan| scan.report.clone())
     {
         return Ok(report);

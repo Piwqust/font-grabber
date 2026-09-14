@@ -5,6 +5,7 @@ pub mod ui;
 pub mod webdriver;
 
 use std::{
+    io::Write,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -123,11 +124,8 @@ pub fn variant_label(weight: &str, style: &str, stretch: Option<&str>, variable:
     }
 }
 
-pub fn next_available_path(path: &Path) -> PathBuf {
-    if !path.exists() {
-        return path.to_path_buf();
-    }
-
+/// Write completely, then atomically claim a free name without overwriting it.
+pub fn write_unique_file(path: &Path, bytes: &[u8]) -> Result<PathBuf> {
     let stem = path
         .file_stem()
         .and_then(|value| value.to_str())
@@ -139,20 +137,50 @@ pub fn next_available_path(path: &Path) -> PathBuf {
         .map(|value| format!(".{value}"))
         .unwrap_or_default();
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
-
-    for index in 1..10_000usize {
-        let candidate = parent.join(format!("{stem}-{index}{ext}"));
-        if !candidate.exists() {
-            return candidate;
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
+    file.write_all(bytes)?;
+    file.flush()?;
+    for index in 0..10_000usize {
+        let candidate = if index == 0 {
+            path.to_path_buf()
+        } else {
+            parent.join(format!("{stem}-{index}{ext}"))
+        };
+        match file.persist_noclobber(&candidate) {
+            Ok(_) => return Ok(candidate),
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                file = error.file;
+            }
+            Err(error) => return Err(error.error.into()),
         }
     }
-
-    parent.join(format!("{stem}-overflow{ext}"))
+    Err(anyhow!("No available filename for {}", path.display()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concurrent_writes_preserve_every_file_and_existing_content() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("same.ttf");
+        std::fs::write(&path, b"original").unwrap();
+        let workers: Vec<_> = (0..16u8)
+            .map(|value| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let saved = write_unique_file(&path, &[value; 1024]).unwrap();
+                    assert_eq!(std::fs::read(&saved).unwrap(), vec![value; 1024]);
+                    saved
+                })
+            })
+            .collect();
+        let paths: std::collections::HashSet<_> =
+            workers.into_iter().map(|w| w.join().unwrap()).collect();
+        assert_eq!(paths.len(), 16);
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+    }
 
     #[test]
     fn normalize_url_adds_https_and_preserves_valid_urls() {

@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     domain::{ConvertedFont, SavedFont},
-    support::{emit_log, next_available_path, sanitize_file_stem, Logger},
+    support::{emit_log, sanitize_file_stem, write_unique_file, Logger},
 };
 
 pub fn save_converted_fonts(
@@ -19,9 +19,8 @@ pub fn save_converted_fonts(
 
     for font in converted_fonts {
         let filename = build_output_filename(font);
-        let path = next_available_path(&output_dir.join(filename));
-        fs::write(&path, &font.data)
-            .with_context(|| format!("Failed to write converted font {}", path.display()))?;
+        let path = write_unique_file(&output_dir.join(filename), &font.data)
+            .context("Failed to write converted font")?;
 
         emit_log(logger.as_ref(), format!("Saved {}", path.display()));
 

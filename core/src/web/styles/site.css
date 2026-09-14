@@ -294,8 +294,6 @@
 }
 .mode-list {
   position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
   z-index: 30;
   width: 17rem;
   padding: 0.35rem;
@@ -1558,11 +1556,61 @@
   display: grid;
   grid-template-columns: minmax(0, 19rem) minmax(0, 1fr);
   grid-template-areas:
+    "intent intent"
     "faces form"
     "faces deliver";
   gap: clamp(1.25rem, 3vw, 2.25rem);
   align-items: start;
   margin-top: clamp(1.25rem, 3vw, 1.75rem);
+}
+
+.metadata-intent {
+  grid-area: intent;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
+.metadata-intent-copy {
+  max-width: 38rem;
+}
+.metadata-intent-copy h2 {
+  margin-top: 0.35rem;
+  font: 400 clamp(1.55rem, 3vw, 2.35rem) / 1.08 var(--serif);
+  letter-spacing: -0.025em;
+}
+.metadata-intent-copy > p:last-child {
+  max-width: 34rem;
+  margin-top: 0.55rem;
+  color: var(--muted);
+  font-size: 13px;
+  text-wrap: pretty;
+}
+.metadata-intent-result {
+  display: grid;
+  gap: 0.3rem;
+  min-width: min(15rem, 35%);
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--line);
+}
+.metadata-intent-result span,
+.metadata-intent-result small {
+  font: 400 10.5px/1.4 var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.metadata-intent-result strong {
+  font: 400 clamp(1.25rem, 2.5vw, 1.8rem) / 1.1 var(--serif);
+  overflow-wrap: anywhere;
+}
+.metadata-intent-result small {
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 /* --- The files ------------------------------------------------------------ */
@@ -1714,6 +1762,28 @@
   gap: clamp(1rem, 2vw, 1.5rem);
   min-width: 0;
 }
+.meta-advanced {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+}
+.meta-advanced > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem;
+  cursor: pointer;
+  font: 400 1.3rem/1.2 var(--serif);
+  list-style: none;
+}
+.meta-advanced > summary::-webkit-details-marker { display: none; }
+.meta-advanced > summary::after { content: "+"; font: 400 1.25rem/1 var(--mono); color: var(--muted); }
+.meta-advanced[open] > summary::after { content: "−"; }
+.meta-advanced > summary span { flex: 1; font: 400 11px/1.4 var(--mono); color: var(--muted); text-align: right; }
+.meta-advanced-body { display: grid; gap: 1rem; padding: 0 0.7rem 0.7rem; }
+.meta-advanced-body > .meta-section { border: 0; border-top: 1px solid var(--line); border-radius: 0; padding-inline: 0.45rem; }
 .meta-section {
   display: grid;
   gap: 0.9rem;
@@ -1876,6 +1946,7 @@
   .metadata-body {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
+      "intent"
       "faces"
       "form"
       "deliver";
@@ -1884,6 +1955,15 @@
     position: static;
     max-height: 24rem;
   }
+  .metadata-intent { align-items: start; flex-direction: column; gap: 1.25rem; }
+  .metadata-intent-result { width: 100%; min-width: 0; padding: 0.85rem 0 0; border-top: 1px solid var(--line); border-left: 0; }
+}
+
+@media (max-width: 560px) {
+  .metadata-intent { padding: 1rem; }
+  .metadata-intent-copy h2 { font-size: 1.65rem; }
+  .meta-advanced > summary { align-items: start; flex-wrap: wrap; }
+  .meta-advanced > summary span { flex-basis: 100%; text-align: left; }
 }
 
 /* ==========================================================================
@@ -2034,4 +2114,335 @@
   .hero {
     min-height: min(92vh, 56rem);
   }
+}
+
+   Specimen-sheet metadata layout (sp-*)
+/* ==========================================================================
+   Specimen-sheet metadata layout (sp-*)
+   Uses Open Props tokens: --shadow-*, --radius-*, --ease-*
+   ========================================================================== */
+
+.metadata-specimen {
+  --sp-gutter: clamp(1.25rem, 5vw, 4.5rem);
+  max-width: var(--measure);
+  margin-inline: auto;
+  padding: 0 var(--sp-gutter) 8rem;
+}
+
+/* 1. Action bar */
+.sp-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* 2. Family headline */
+.sp-hero {
+  padding: clamp(2rem, 5vw, 4rem) 0 clamp(1.4rem, 3vw, 2.4rem);
+}
+.sp-hero-label {
+  display: block;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.9rem;
+}
+.sp-hero-input {
+  display: block;
+  width: 100%;
+  padding: 0.25rem 0;
+  border: 0;
+  border-bottom: 2px solid var(--line-strong);
+  border-radius: 0;
+  background: none;
+  font: 400 clamp(2.6rem, 7vw, 5rem)/1 var(--serif);
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  outline: 0;
+  caret-color: var(--accent);
+  transition: border-color 0.2s var(--ease-out-3, var(--ease));
+}
+.sp-hero-input:focus {
+  border-color: var(--ink);
+}
+.sp-hero-input::placeholder { color: var(--muted); opacity: 0.45; }
+.sp-hero-stats {
+  display: flex;
+  gap: 2rem;
+  margin-top: 1rem;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.sp-hero-reset {
+  margin-top: 0.6rem;
+  font: 400 12px/1.4 var(--mono);
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.15s var(--ease-out-2, ease);
+}
+.sp-hero-reset:hover { color: var(--ink); }
+
+/* 3. Control strip */
+.sp-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.sp-strip-spacer { flex: 1; min-width: 0.5rem; }
+.sp-proof-text {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.sp-proof-text input {
+  min-width: 0;
+  width: clamp(160px, 20vw, 320px);
+  padding: 0.45rem 0.85rem;
+  border: var(--border-size-1, 1px) solid var(--line-strong);
+  border-radius: var(--radius-2, 5px);
+  background: var(--surface);
+  font: 400 13px/1.4 var(--sans);
+  box-shadow: var(--shadow-1, 0 1px 2px rgba(0,0,0,.04));
+  transition: border-color 0.2s var(--ease-out-3, ease), box-shadow 0.2s var(--ease-out-3, ease);
+}
+.sp-proof-text input:focus {
+  border-color: var(--ink);
+  box-shadow: var(--shadow-2, 0 3px 5px rgba(0,0,0,.06));
+  outline: 0;
+}
+.sp-strip .slider { min-width: 160px; max-width: 220px; }
+
+/* 4. Proof rows */
+.sp-proofs {
+  border-top: 2px solid var(--ink);
+}
+.sp-proof {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) 1px minmax(0, 1fr);
+  border-bottom: 1px solid var(--line);
+  transition: background-color 0.2s var(--ease-out-2, ease);
+}
+.sp-proof:hover { background: var(--surface-sunk); }
+.sp-proof[data-differs="true"] {
+  background: var(--surface-sunk);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.sp-proof-left {
+  padding: 1.4rem 2rem 1.4rem 0;
+  min-width: 0;
+}
+.sp-proof-specimen { min-width: 0; overflow: hidden; }
+.sp-proof-specimen .preview,
+.sp-proof-specimen .preview-wrap {
+  font-size: var(--proof-size, 42px);
+  line-height: 1.12;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.sp-proof-caption {
+  display: flex;
+  gap: 1rem;
+  align-items: baseline;
+  margin-top: 0.7rem;
+  font: 400 11px/1.3 var(--mono);
+}
+.sp-proof-style {
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  min-width: 6rem;
+}
+.sp-proof-diff { color: var(--muted); }
+.sp-proof-diff .metadata-after { color: var(--ink); font-weight: 500; }
+.sp-proof-divider {
+  background: var(--line);
+  margin-block: 1.2rem;
+}
+.sp-proof-right {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 1.5rem;
+  padding: 1.4rem 0 1.4rem 2rem;
+  align-content: start;
+}
+.sp-proof-field {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.sp-proof-field-label {
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.sp-proof-field-value {
+  font: 400 13.5px/1.35 var(--sans);
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+.sp-proof-field.is-mono .sp-proof-field-value {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+/* Per-face manual editing toggle and its fields. The toggle spans the full
+   width of the two-column proof-right grid; when on, the MetaField instances
+   replace the read-only values and each also spans both columns. */
+.sp-proof-manual {
+  grid-column: 1 / -1;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.25rem;
+}
+.sp-proof-manual .checkbox {
+  font: 400 12px/1.35 var(--mono);
+  color: var(--muted);
+}
+.sp-proof-right > .meta-field {
+  grid-column: 1 / -1;
+}
+.sp-proof-right > .meta-field .field-shell {
+  min-height: 36px;
+  border-radius: var(--radius-2, 5px);
+  box-shadow: var(--shadow-1, 0 1px 2px rgba(0,0,0,.04));
+}
+.sp-proof-right > .meta-field .meta-origin {
+  font-size: 11px;
+}
+
+/* 5. Family records */
+.sp-records {
+  margin-top: 1.5rem;
+  border: var(--border-size-1, 1px) solid var(--line);
+  border-radius: var(--radius-2, 5px);
+  background: var(--surface);
+  box-shadow: var(--shadow-1, 0 1px 2px rgba(0,0,0,.04));
+}
+.sp-records-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius-2, 5px);
+  cursor: pointer;
+  transition: background 0.15s var(--ease-out-2, ease);
+}
+.sp-records-toggle:hover { background: var(--surface-sunk); }
+.sp-records-chevron {
+  font-size: 1rem;
+  color: var(--muted);
+  line-height: 1;
+  transition: transform 0.2s var(--ease-out-3, ease);
+}
+.sp-records-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.75rem 2.5rem;
+  padding: 0.25rem 1.25rem 1.5rem;
+  border-top: 1px solid var(--line);
+}
+.sp-records-col {
+  display: grid;
+  gap: 0.85rem;
+  align-content: start;
+}
+.sp-records-col h3 { margin-bottom: 0.15rem; }
+
+/* Override MetaField appearance inside the records panel */
+.sp-records .meta-field { gap: 0.45rem; }
+.sp-records .field-shell {
+  min-height: 36px;
+  border-radius: var(--radius-2, 5px);
+  box-shadow: var(--shadow-1, 0 1px 2px rgba(0,0,0,.04));
+  transition: border-color 0.2s var(--ease-out-3, ease), box-shadow 0.2s var(--ease-out-3, ease);
+}
+.sp-records .field-shell:focus-within {
+  box-shadow: var(--shadow-2, 0 3px 5px rgba(0,0,0,.06));
+}
+.sp-records .field-shell.is-multiline {
+  border-radius: var(--radius-2, 5px);
+}
+.sp-records .meta-origin {
+  font-size: 11px;
+}
+
+/* 6. Footer */
+.sp-footer {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  font: 400 12.5px/1.5 var(--mono);
+  color: var(--muted);
+}
+.sp-footer-status { margin: 0; }
+
+/* Responsive */
+@media (max-width: 860px) {
+  .sp-proof { grid-template-columns: 1fr; }
+  .sp-proof-divider { display: none; }
+  .sp-proof-right {
+    padding: 0 0 1.25rem;
+    border-top: 1px solid var(--line);
+    margin-top: 0.85rem;
+  }
+  .sp-proof-left { padding-right: 0; }
+  .sp-records-grid { grid-template-columns: 1fr; }
+  .sp-strip .slider { min-width: 100%; }
+  .sp-action-bar { flex-wrap: wrap; }
+}
+
+@media (max-width: 560px) {
+  .metadata-specimen { --sp-gutter: 1rem; padding-bottom: 4rem; }
+  .sp-action-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .sp-action-bar > :first-child { min-width: 0; }
+  .sp-action-bar button { white-space: nowrap; }
+  .sp-hero { padding-top: 2rem; }
+  .sp-hero-input { font-size: clamp(2.3rem, 12vw, 3.5rem); }
+  .sp-hero-stats { flex-wrap: wrap; gap: 0.55rem 1.15rem; line-height: 1.35; }
+  .sp-strip { align-items: stretch; gap: 0.7rem; }
+  .sp-strip-spacer { display: none; }
+  .sp-proof-text {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    width: 100%;
+    gap: 0.55rem;
+  }
+  .sp-proof-text input { width: auto; min-width: 0; }
+  .sp-strip .slider { width: 100%; }
+  .sp-proof-left { padding: 1rem 0 0.85rem; }
+  .sp-proof-specimen .preview,
+  .sp-proof-specimen .preview-wrap {
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    font-size: clamp(2rem, 10vw, 3rem);
+    line-height: 1.05;
+  }
+  .sp-proof-caption { align-items: flex-start; flex-direction: column; gap: 0.25rem; margin-top: 0.8rem; }
+  .sp-proof-style { min-width: 0; }
+  .sp-proof-right { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.65rem 0.9rem; padding-bottom: 1rem; }
+  .sp-proof-manual .checkbox { align-items: flex-start; line-height: 1.35; }
+  .sp-proof-manual .checkbox-label { white-space: normal; }
+  .sp-records-grid { gap: 1.5rem; padding-inline: 1rem; }
+  .sp-records-toggle { padding-inline: 1rem; }
 }

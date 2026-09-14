@@ -169,8 +169,7 @@ async fn inspect_font_scripts(
         .with_context(|| format!("Failed to fetch {}", source.url))?
         .error_for_status()
         .with_context(|| format!("Font returned an error response: {}", source.url))?;
-    let bytes = response
-        .bytes()
+    let bytes = crate::support::http::read_limited(response, crate::support::http::MAX_FONT_BYTES)
         .await
         .with_context(|| format!("Failed to read font bytes from {}", source.url))?;
     let sfnt = convert::decompress_to_sfnt(bytes.as_ref(), source.format)?;

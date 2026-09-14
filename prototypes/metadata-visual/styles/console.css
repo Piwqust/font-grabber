@@ -1,0 +1,213 @@
+/* Direction 1: Console - dark, dense, two-pane working surface.
+   Active only when <html data-direction="console">. */
+
+[data-direction="console"] body {
+  background: #0e0f11;
+  color: #e6e4df;
+}
+
+/* ---------- bar ---------- */
+.cs-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  padding: 0 20px;
+  background: #16171a;
+  border-bottom: 1px solid #262728;
+}
+.cs-mark {
+  font: 600 14px Geist;
+  color: #fff;
+}
+.cs-path { font-size: 12px; color: #777; }
+.cs-path b { color: #444; margin: 0 4px; }
+.cs-count { margin-left: auto; font-size: 11px; color: #666; }
+.cs-bar-actions { display: flex; gap: 10px; align-items: center; }
+.cs-load span, .cs-ghost {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border: 1px solid #333;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #999;
+  transition: border-color 150ms;
+}
+.cs-load:hover span, .cs-ghost:hover { border-color: #666; color: #ccc; }
+.cs-write {
+  padding: 6px 16px;
+  border-radius: 4px;
+  background: #e8e6e0;
+  color: #111;
+  font: 600 12px Geist;
+  transition: opacity 200ms;
+}
+.cs-write:disabled { opacity: 0.35; }
+
+/* ---------- status ---------- */
+.cs-status { margin: 0; padding: 6px 20px; font-size: 11px; color: #666; background: #131416; }
+[data-kind="error"].cs-status { color: #e45; }
+[data-kind="done"].cs-status { color: #6d8; }
+.cs-status .pf-status-retry { margin-left: 8px; text-decoration: underline; color: inherit; }
+
+/* ---------- grid ---------- */
+.cs-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 2fr) 3fr;
+  min-height: calc(100vh - 48px - 30px);
+}
+@media (max-width: 900px) { .cs-grid { grid-template-columns: 1fr; } }
+
+/* ---------- left: files ---------- */
+.cs-files {
+  border-right: 1px solid #212224;
+  padding: 16px;
+}
+.cs-files-head {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #262728;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #555;
+}
+.cs-rows { margin-top: 4px; }
+.cs-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid #1d1e20;
+  text-align: left;
+  color: #b0aea6;
+  transition: background 120ms;
+}
+.cs-row:hover { background: #1a1b1e; }
+.cs-row[data-active="true"] { background: #1e1f23; }
+.cs-row-style {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #888;
+}
+.cs-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #333;
+  flex-shrink: 0;
+}
+.cs-row[data-dirty="true"] .cs-dot { background: #7c7; }
+.cs-row-file { font: 400 12px/1.3 Plex, monospace; overflow-wrap: anywhere; }
+
+.cs .pf-sample { margin-top: 16px; }
+.cs .pf-sample label { color: #555; }
+.cs .pf-sample input { border: 0; border-bottom: 1px solid #2a2b2e; background: transparent; padding: 4px 0; }
+
+/* ---------- right: editor ---------- */
+.cs-editor {
+  padding: 16px 24px 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.cs-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid #262728;
+}
+.cs-tab {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: #666;
+  border-bottom: 2px solid transparent;
+  transition: color 150ms;
+}
+.cs-tab[aria-selected="true"] { color: #ddd; border-color: #e8e6e0; }
+.cs-tab:hover { color: #bbb; }
+
+.cs-panel { display: grid; gap: 16px; }
+.cs-note { font-size: 12px; color: #666; max-width: 38ch; }
+
+.cs-cascade { display: grid; gap: 6px; }
+.cs-cascade-row {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 12px;
+  color: #888;
+}
+.cs-cascade-row > span:first-child { width: 80px; text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; color: #555; }
+
+.cs-face-head { display: grid; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid #262728; }
+.cs-face-name { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #555; }
+
+.cs-fields { display: grid; gap: 14px; }
+
+/* Field skin inside console */
+.cs .pf-label { color: #666; }
+.cs .pf-input {
+  background: #191a1d;
+  border: 1px solid #262728;
+  border-radius: 4px;
+  padding: 8px 10px;
+  color: #ddd;
+}
+.cs .pf-input:focus { border-color: #4c5d80; box-shadow: 0 0 0 3px rgba(80,110,170,0.18); }
+.cs .pf-input.is-big { font: 400 clamp(1.2rem,2.4vw,1.8rem) Newsreader, serif; padding: 10px 0; border-width: 0 0 1px; border-radius: 0; background: transparent; }
+.cs .pf-error { color: #e45; }
+.cs .pf-hint { color: #555; }
+.cs .pf-reset { color: #888; }
+.cs .pf-before { color: #555; }
+.cs .pf-after { color: #ddd; }
+.cs .pf-arrow { color: #444; }
+.cs .pf-preset {
+  padding: 4px 10px;
+  border: 1px solid #333;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #888;
+}
+.cs .pf-preset[aria-pressed="true"] { border-color: #666; color: #ddd; }
+.cs .pf-derived { grid-template-columns: 1fr 1fr; }
+.cs .pf-derived dt { color: #555; }
+.cs .pf-derived dd { color: #bbb; }
+.cs .pf-face-switch label { color: #888; font-size: 12px; }
+
+.cs .pf-issues {
+  padding: 12px 14px;
+  border-radius: 4px;
+  background: rgba(230, 60, 80, 0.08);
+  font-size: 12px;
+}
+.cs .pf-issues strong { color: #e45; }
+.cs .pf-report {
+  padding: 12px 14px;
+  border-radius: 4px;
+  background: rgba(100, 200, 110, 0.06);
+  font-size: 12px;
+}
+.cs .pf-report [data-ok="false"] em { color: #e45; }
+
+.cs .pf-groups { padding: 0 20px; }
+.cs .pf-group {
+  padding: 6px 12px;
+  border: 1px solid #262728;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #777;
+}
+.cs .pf-group[aria-current="true"] { border-color: #555; color: #ddd; background: #1a1b1e; }
+.cs .pf-group small { color: #555; font-size: 10px; }
+
+@media (max-width: 500px) { .cs-row { grid-template-columns: 1fr; gap: 4px; } .cs-row-style { font-size: 10px; } .cs-bar { flex-wrap: wrap; height: auto; padding: 10px 12px; } .cs-tabs { flex-wrap: wrap; } .cs-editor { padding: 12px 14px 120px; } }

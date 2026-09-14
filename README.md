@@ -119,6 +119,13 @@ $ font-grabber grab https://displaay.net/typeface/perfektta --all
 - **Live previews** — every candidate rendered in its real typeface with editable
   sample text and adjustable size.
 - **Editable names** — rewrite family, subfamily, full name, PostScript name, and filename before the file is written, so `Ee-Te-Bold` can install as `GT Eesti Bold`.
+- **Metadata editor** — a full editing pass over the OpenType name table, reached
+  either from the catalogue after a scan or by dropping local `TTF`/`OTF`/`WOFF`/`WOFF2`
+  files on the landing page. One form covers the family — name, author, licence,
+  copyright, version, description, URLs — and per-face overrides handle the names
+  that differ. Renaming the family cascades into full names, PostScript names, and
+  file names; clearing a field removes the record. Files come back as a ZIP or in a
+  folder and install with the new names.
 - **Flexible output** — ZIP, a chosen folder, or individual files.
 - **Local by default** — the CLI, web app, and extension convert on your machine. Hosted mode is a locked-down personal instance, not a public upload service.
 

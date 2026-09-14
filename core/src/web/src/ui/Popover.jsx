@@ -1,13 +1,13 @@
 import { cloneElement } from "preact";
-import { useCallback, useEffect, useId, useRef, useState } from "preact/hooks";
+import { useEffect, useId, useState } from "preact/hooks";
+import { useFloating } from "../lib/floating.js";
 import { IconButton } from "./Button.jsx";
 
 /**
  * A panel anchored to a trigger, built on the native popover API so light
- * dismiss, Escape and the top layer come from the platform. Positioning is
- * done here because CSS anchor positioning is not available everywhere yet:
- * it prefers below the trigger, flips above when there is no room, and is
- * always clamped inside the viewport.
+ * dismiss, Escape and the top layer come from the platform. Placement comes
+ * from Floating UI, which flips and shifts the panel to keep it on screen,
+ * and keeps following the anchor while the panel is open.
  *
  * `trigger` is a single element; it receives the wiring it needs.
  */
@@ -19,53 +19,35 @@ export function Popover({
 }) {
   const auto = useId();
   const id = `popover-${auto}`;
-  const panelRef = useRef(null);
-  const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
-
-  const position = useCallback(() => {
-    const panel = panelRef.current;
-    const anchor = anchorRef.current;
-    if (!panel || !anchor || !panel.matches(":popover-open")) return;
-    const box = anchor.getBoundingClientRect();
-    panel.style.maxHeight = `${Math.max(120, innerHeight - 32)}px`;
-    const { height, width } = panel.getBoundingClientRect();
-    const below = box.bottom + 10;
-    const top =
-      below + height <= innerHeight - 16 ? below : box.top - height - 10;
-    const left = placement.endsWith("end") ? box.right - width : box.left;
-    panel.style.top = `${Math.max(16, Math.min(top, innerHeight - height - 16))}px`;
-    panel.style.left = `${Math.max(16, Math.min(left, innerWidth - width - 16))}px`;
-    panel.style.bottom = "auto";
-    panel.style.right = "auto";
-  }, [placement]);
+  const { anchorRef, floatingRef, startAutoUpdate, stopAutoUpdate } =
+    useFloating({ placement, strategy: "fixed" });
 
   useEffect(() => {
-    const panel = panelRef.current;
+    const panel = floatingRef.current;
     if (!panel) return;
     const onToggle = (event) => {
       const isOpen = event.newState === "open";
       setOpen(isOpen);
       if (isOpen) {
-        position();
-        // Focus the first control so the panel is usable straight from the keyboard.
+        // A tall panel is capped before measuring, so the flip decision is
+        // made against the height the panel will actually have.
+        panel.style.maxHeight = `${Math.max(120, innerHeight - 32)}px`;
+        startAutoUpdate();
+        // Focus the first control so the panel is usable from the keyboard.
         panel.querySelector("input, select, button, [tabindex]")?.focus();
-      } else if (
-        panel.contains(document.activeElement) ||
-        document.activeElement === document.body
-      ) {
-        anchorRef.current?.focus({ preventScroll: true });
+      } else {
+        stopAutoUpdate();
+        if (
+          panel.contains(document.activeElement) ||
+          document.activeElement === document.body
+        )
+          anchorRef.current?.focus({ preventScroll: true });
       }
     };
     panel.addEventListener("toggle", onToggle);
-    addEventListener("resize", position);
-    addEventListener("scroll", position, { passive: true });
-    return () => {
-      panel.removeEventListener("toggle", onToggle);
-      removeEventListener("resize", position);
-      removeEventListener("scroll", position);
-    };
-  }, [position]);
+    return () => panel.removeEventListener("toggle", onToggle);
+  }, [startAutoUpdate, stopAutoUpdate]);
 
   return (
     <>
@@ -74,7 +56,7 @@ export function Popover({
         popovertarget: id,
         "aria-expanded": open,
       })}
-      <div class="popover" id={id} popover="auto" ref={panelRef}>
+      <div class="popover" id={id} popover="auto" ref={floatingRef}>
         <div class="popover-head">
           <h2 class="popover-title">{title}</h2>
           <IconButton

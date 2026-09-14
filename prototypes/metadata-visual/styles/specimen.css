@@ -1,0 +1,264 @@
+/* Direction 2: Specimen - a light editorial page. The type is the layout: the
+   family name is the headline you type into, and each face is a proof line. */
+
+[data-direction="specimen"] body {
+  background: #f7f6f2;
+  color: #17171a;
+}
+
+.sp {
+  width: min(1180px, 100% - clamp(2rem, 8vw, 9rem));
+  margin: 0 auto;
+  padding-bottom: 140px;
+}
+
+.sp-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 22px 0 18px;
+  border-bottom: 1px solid #17171a;
+}
+.sp-mark { font: 600 15px/1 Geist; letter-spacing: -0.01em; }
+.sp-origin {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #7c7b74;
+}
+.sp-top-actions { display: flex; align-items: center; gap: 18px; margin-left: auto; }
+.sp-load span,
+.sp-ghost {
+  font-size: 12px;
+  color: #17171a;
+  border-bottom: 1px solid #17171a;
+  padding-bottom: 1px;
+}
+.sp-ghost[disabled] { color: #a5a49c; border-color: #d6d4cb; }
+
+.sp .pf-groups { padding: 16px 0 0; }
+.sp .pf-group {
+  padding: 5px 12px;
+  border: 1px solid #dddbd1;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #55544e;
+}
+.sp .pf-group[aria-current] { border-color: #17171a; color: #17171a; }
+.sp .pf-group small { font-size: 10px; opacity: 0.6; }
+
+/* Headline. The input is the H1: no box, no label chrome. */
+.sp-hero { padding: clamp(34px, 6vw, 70px) 0 clamp(26px, 4vw, 44px); }
+.sp-kicker {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #8b897f;
+}
+.sp-title-input {
+  width: 100%;
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 400 clamp(3rem, 11vw, 8.5rem)/0.92 Newsreader, Georgia, serif;
+  letter-spacing: -0.045em;
+  color: #17171a;
+}
+.sp-title-input::placeholder { color: #c9c7bd; }
+.sp-title-input:focus { outline: 0; }
+.sp-title-input:focus-visible {
+  outline: 0;
+  box-shadow: 0 3px 0 #17171a;
+}
+.sp-hero-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 34px;
+  align-items: baseline;
+  margin-top: 26px;
+  padding-top: 16px;
+  border-top: 1px solid #dddbd1;
+}
+.sp-hero-meta { font-size: 12px; color: #6f6e67; }
+.sp-undo { text-decoration: underline; text-underline-offset: 3px; color: #17171a; }
+.sp-hero-error { font-size: 12px; color: #a02c30; }
+.sp-hero-foot .pf-sample { flex: 1; min-width: 220px; margin-left: auto; }
+.sp-hero-foot .pf-sample label { color: #8b897f; }
+.sp-hero-foot .pf-sample input {
+  padding: 5px 0;
+  border: 0;
+  border-bottom: 1px solid #dddbd1;
+  background: none;
+  font-family: Plex, ui-monospace, monospace;
+  font-size: 12px;
+}
+.sp-hero-foot .pf-sample input:focus { outline: 0; border-color: #17171a; }
+
+/* Proof rows. Each face is a full-width line set in itself. */
+.sp-proofs { border-top: 1px solid #17171a; }
+.sp-proof {
+  padding: 26px 0;
+  border-bottom: 1px solid #dddbd1;
+}
+.sp-proof[data-dirty="true"] { box-shadow: inset 3px 0 0 #17171a; padding-left: 18px; }
+.sp-proof-line { overflow: hidden; }
+.sp-proof-line .pf-specimen {
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.sp-proof-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  align-items: baseline;
+  margin-top: 14px;
+}
+.sp-proof-style {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  min-width: 110px;
+}
+.sp-proof-file {
+  font-family: Plex, ui-monospace, monospace;
+  font-size: 12px;
+  color: #6f6e67;
+}
+.sp-proof-file .pf-after { color: #17171a; }
+.sp-proof-toggle {
+  margin-left: auto;
+  padding: 5px 14px;
+  border: 1px solid #17171a;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: background-color 150ms, color 150ms;
+}
+.sp-proof-toggle:hover { background: #17171a; color: #f7f6f2; }
+.sp-proof-body {
+  margin-top: 22px;
+  padding: 22px 0 6px;
+  border-top: 1px solid #dddbd1;
+}
+
+/* Records: three quiet disclosures, two columns of fields inside. */
+.sp-records { margin-top: clamp(40px, 6vw, 72px); border-top: 1px solid #17171a; }
+.sp-record { border-bottom: 1px solid #dddbd1; }
+.sp-record summary {
+  display: flex;
+  gap: 18px;
+  align-items: baseline;
+  padding: 18px 0;
+  cursor: pointer;
+  list-style: none;
+  font: 400 1.35rem/1 Newsreader, Georgia, serif;
+}
+.sp-record summary::-webkit-details-marker { display: none; }
+.sp-record summary::after {
+  content: "+";
+  margin-left: auto;
+  font-family: Plex, ui-monospace, monospace;
+  font-size: 14px;
+  color: #8b897f;
+}
+.sp-record[open] summary::after { content: "-"; }
+.sp-record summary small {
+  font-family: Plex, ui-monospace, monospace;
+  font-size: 11px;
+  color: #8b897f;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 46ch;
+}
+.sp-record-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 30px;
+  padding: 6px 0 30px;
+}
+.sp-record-body .pf-presets { grid-column: 1 / -1; }
+
+/* Shared field skin for this direction. */
+.sp .pf-label { color: #8b897f; }
+.sp .pf-input {
+  padding: 9px 0;
+  border: 0;
+  border-bottom: 1px solid #d6d4cb;
+  background: none;
+  font-size: 14px;
+  color: #17171a;
+}
+.sp .pf-input:focus { outline: 0; border-color: #17171a; }
+.sp .pf[data-edited="true"] .pf-input { border-color: #17171a; }
+.sp .pf[data-invalid="true"] .pf-input { border-color: #a02c30; }
+.sp .pf-hint, .sp .pf-derived dt { color: #8b897f; }
+.sp .pf-error { color: #a02c30; }
+.sp .pf-derived {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  padding: 16px 0 0;
+}
+.sp .pf-face-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sp .pf-face-switch { font-size: 12px; }
+.sp .pf-preset {
+  padding: 4px 12px;
+  border: 1px solid #d6d4cb;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.sp .pf-preset[aria-pressed="true"] { border-color: #17171a; background: #17171a; color: #f7f6f2; }
+.sp .pf-issues, .sp .pf-report {
+  margin-top: 26px;
+  padding: 16px 18px;
+  border: 1px solid #17171a;
+  font-size: 12px;
+}
+.sp .pf-issues { border-color: #a02c30; color: #7d2226; }
+.sp .pf-issues ul, .sp .pf-report ul { margin-top: 8px; }
+.sp .pf-report li { display: flex; gap: 12px; font-family: Plex, ui-monospace, monospace; }
+.sp .pf-report li[data-ok="false"] { color: #a02c30; }
+
+/* Footer bar: the status and the only primary action. */
+.sp-foot {
+  position: fixed;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px clamp(1rem, 8vw, 4.5rem);
+  background: rgba(247, 246, 242, 0.92);
+  border-top: 1px solid #17171a;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.sp-status { font-size: 12px; color: #6f6e67; }
+.sp-status[data-kind="error"] { color: #a02c30; }
+.sp-status[data-kind="done"] { color: #1f6b46; }
+.sp-status .pf-status-retry { margin-left: 10px; text-decoration: underline; }
+.sp-write {
+  padding: 11px 22px;
+  border: 1px solid #17171a;
+  border-radius: 999px;
+  background: #17171a;
+  color: #f7f6f2;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: opacity 150ms;
+}
+.sp-write[disabled] { opacity: 0.35; }
+
+@media (max-width: 860px) {
+  .sp { width: min(100% - 2.2rem, 640px); padding-bottom: 150px; }
+  .sp-record-body, .sp .pf-face-fields { grid-template-columns: 1fr; }
+  .sp-hero-foot .pf-sample { margin-left: 0; }
+  .sp-proof-toggle { margin-left: 0; }
+  .sp-foot { gap: 12px; padding-bottom: 68px; }
+}

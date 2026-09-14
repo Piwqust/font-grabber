@@ -545,10 +545,13 @@ async fn font_proxy(State(state): State<AppState>, Query(query): Query<FontQuery
             &format!("Font host returned {}", response.status()),
         );
     }
-    let bytes = match response.bytes().await {
-        Ok(bytes) => bytes,
-        Err(error) => return error_response(StatusCode::BAD_GATEWAY, &error.to_string()),
-    };
+    let bytes =
+        match crate::support::http::read_limited(response, crate::support::http::MAX_FONT_BYTES)
+            .await
+        {
+            Ok(bytes) => bytes,
+            Err(error) => return error_response(StatusCode::BAD_GATEWAY, &error.to_string()),
+        };
 
     (
         StatusCode::OK,
@@ -556,7 +559,7 @@ async fn font_proxy(State(state): State<AppState>, Query(query): Query<FontQuery
             (header::CONTENT_TYPE, content_type_for(parsed.as_str())),
             (header::CACHE_CONTROL, "public, max-age=3600".to_string()),
         ],
-        bytes.to_vec(),
+        bytes,
     )
         .into_response()
 }

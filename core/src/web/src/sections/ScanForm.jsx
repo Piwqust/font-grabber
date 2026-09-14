@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useStore } from "../store.jsx";
+import { useFloating } from "../lib/floating.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Field } from "../ui/Field.jsx";
 import { Icon } from "../ui/Icon.jsx";
@@ -123,11 +124,13 @@ export function ScanForm({ compact = false }) {
 function ModeMenu({ compact }) {
   const store = useStore();
   const [open, setOpen] = useState(false);
-  const wrap = useRef(null);
   const current = MODES.find((m) => m.value === store.mode) || MODES[0];
+  const { anchorRef: wrap, floatingRef: listRef, startAutoUpdate, stopAutoUpdate } =
+    useFloating({ placement: "bottom-end", offsetPx: 10 });
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) { stopAutoUpdate(); return; }
+    startAutoUpdate();
     const away = (event) => {
       if (!wrap.current?.contains(event.target)) setOpen(false);
     };
@@ -142,8 +145,9 @@ function ModeMenu({ compact }) {
     return () => {
       removeEventListener("pointerdown", away);
       removeEventListener("keydown", key);
+      stopAutoUpdate();
     };
-  }, [open]);
+  }, [open, startAutoUpdate, stopAutoUpdate]);
 
   return (
     <div class="mode-menu" ref={wrap}>
@@ -160,7 +164,7 @@ function ModeMenu({ compact }) {
         <Icon name="chevronDown" size={14} />
       </button>
       {open ? (
-        <ul class="mode-list" role="listbox" aria-label="Scan method">
+        <ul class="mode-list" role="listbox" aria-label="Scan method" ref={listRef}>
           {MODES.map((mode) => (
             <li key={mode.value}>
               <button

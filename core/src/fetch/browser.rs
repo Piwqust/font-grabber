@@ -1,7 +1,4 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -9,7 +6,7 @@ use headless_chrome::Browser;
 
 use crate::{
     domain::{CachedFont, FontCandidate, FontFormat, TransferMethod},
-    support::{chrome, emit_log, next_available_path, sanitize_file_stem, Logger},
+    support::{chrome, emit_log, sanitize_file_stem, write_unique_file, Logger},
 };
 
 pub fn fetch_failed_fonts(
@@ -126,8 +123,5 @@ fn write_cache_file(
     let weight = sanitize_file_stem(&font.weight).to_ascii_lowercase();
     let style = sanitize_file_stem(&font.style).to_ascii_lowercase();
     let filename = format!("{}-{}-{}.{}", family, weight, style, format.extension());
-    let path = next_available_path(&cache_dir.join(filename));
-    fs::write(&path, bytes)
-        .with_context(|| format!("Failed to write cache file {}", path.display()))?;
-    Ok(path)
+    write_unique_file(&cache_dir.join(filename), bytes).context("Failed to write font cache file")
 }

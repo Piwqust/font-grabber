@@ -238,6 +238,7 @@ export async function scanActiveTab() {
 const cache = new Map(); // url -> {bytes, blobUrl}
 const loads = new Map(); // url -> Promise
 let sourceTabId = null;
+let cacheGeneration = 0;
 
 export function setSourceTab(tabId) {
   sourceTabId = tabId;
@@ -245,6 +246,7 @@ export function setSourceTab(tabId) {
 
 /** Drops every cached file. Called when the popup moves to a different page. */
 export function resetCache() {
+  cacheGeneration++;
   for (const entry of cache.values()) URL.revokeObjectURL(entry.blobUrl);
   cache.clear();
   loads.clear();
@@ -287,6 +289,7 @@ function decodeBase64(value) {
 }
 
 async function readBytes(font) {
+  const mine = cacheGeneration;
   const cached = cache.get(font.url);
   if (cached) return cached;
 
@@ -311,7 +314,12 @@ async function readBytes(font) {
     }
   }
 
+  if (mine !== cacheGeneration) throw new Error("Font request was superseded");
   const entry = { bytes, blobUrl: URL.createObjectURL(new Blob([bytes])) };
+  if (mine !== cacheGeneration) {
+    URL.revokeObjectURL(entry.blobUrl);
+    throw new Error("Font request was superseded");
+  }
   cache.set(font.url, entry);
   return entry;
 }

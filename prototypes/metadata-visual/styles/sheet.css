@@ -1,0 +1,592 @@
+/* Direction 4: Sheet. A working document. Cool grey paper, hairline grid, all
+   faces and records in one table so a large family is read in one pass. */
+[data-direction="sheet"] {
+  overflow-x: hidden;
+  overflow-x: clip;
+  --page: #e9eaec;
+  --paper: #fdfdfd;
+  --ink: #16181c;
+  --muted: #6d7176;
+  --line: #d3d6da;
+  --line-strong: #a9adb3;
+  --tint: #f2f3f5;
+  --dirty: #1b5e9c;
+  --danger: #a4262c;
+  color-scheme: light;
+}
+[data-direction="sheet"] body {
+  background: var(--page);
+  color: var(--ink);
+  font: 13px/1.5 var(--mono);
+}
+
+.sh {
+  overflow: hidden;
+  width: min(1440px, 100%);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 0 clamp(0.75rem, 2vw, 2rem) 8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* Top bar: identity left, file actions right. */
+.sh-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 3.25rem;
+  border-bottom: 1px solid var(--line-strong);
+}
+.sh-top-left {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.sh-mark {
+  font: 700 1rem/1 var(--sans);
+  letter-spacing: -0.01em;
+}
+.sh-top-sep,
+.sh-top-context {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.sh-top-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.sh-load,
+.sh-ghost {
+  height: 1.85rem;
+  padding: 0 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.sh-load:hover,
+.sh-ghost:not(:disabled):hover {
+  border-color: var(--ink);
+}
+.sh-ghost:disabled {
+  opacity: 0.4;
+}
+
+/* Head: the one control that renames everything, plus the counters. */
+.sh-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1.5rem;
+  align-items: end;
+  padding: 1rem 0 1.25rem;
+  border-bottom: 1px solid var(--line-strong);
+}
+.sh-head-family .pf-label {
+  font-size: 10px;
+}
+.sh-head-family .pf-input.is-big {
+  height: 3.25rem;
+  padding: 0 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--paper);
+  font: 700 clamp(1.25rem, 2.4vw, 1.9rem)/1 var(--sans);
+  letter-spacing: -0.02em;
+}
+.sh-head-family .pf-input.is-big:focus-visible {
+  border-color: var(--dirty);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dirty) 18%, transparent);
+  outline: 0;
+}
+.sh-counters {
+  display: flex;
+  gap: 1.75rem;
+  margin: 0;
+}
+.sh-counters div {
+  display: grid;
+  gap: 0.2rem;
+}
+.sh-counters dt {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.sh-counters dd {
+  margin: 0;
+  font: 400 1.15rem/1 var(--mono);
+}
+.sh-counters dd[data-dirty="true"] {
+  color: var(--dirty);
+}
+
+.sh .pf-groups {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.sh .pf-group {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--muted);
+  font: 11px/1 var(--mono);
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+.sh .pf-group[aria-current] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+.sh .pf-group small {
+  opacity: 0.7;
+}
+
+/* The table itself. */
+.sh-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--paper);
+}
+.sh-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+  text-align: left;
+}
+.sh-caption {
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  text-align: left;
+}
+.sh-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--tint);
+  color: var(--muted);
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.sh-col-face {
+  width: 15rem;
+}
+.sh-row > * {
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.sh-row-face {
+  display: table-cell;
+  border-right: 1px solid var(--line);
+  background: var(--tint);
+  font-weight: 400;
+}
+.sh-row-face .pf-specimen {
+  display: block;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.sh-row-face small {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.sh-row[data-dirty="true"] .sh-row-face {
+  box-shadow: inset 3px 0 0 var(--dirty);
+}
+
+/* A cell is a field with its label folded away until focus. */
+.sh-cell {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 11rem;
+}
+.sh-cell .pf-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.sh-cell .pf-input {
+  width: 100%;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink);
+  font: 13px/1 var(--mono);
+}
+.sh-cell .pf-input:hover {
+  border-color: var(--line);
+}
+.sh-cell .pf-input:focus-visible {
+  border-color: var(--dirty);
+  background: #fff;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dirty) 15%, transparent);
+  outline: 0;
+}
+.sh-cell[data-invalid="true"] .pf-input {
+  border-color: var(--danger);
+}
+.sh-cell .pf-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 10px;
+}
+.sh-cell .pf-hint,
+.sh-cell .pf-reset {
+  display: none;
+}
+
+/* The diff line under each row: what the file is called before and after. */
+.sh-diff td {
+  padding: 0 0.7rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+}
+.sh-diff[data-dirty="false"] {
+  display: none;
+}
+.sh-diff-line {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.sh-diff .pf-after {
+  color: var(--dirty);
+}
+.sh-diff .pf-before {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+.sh-diff-reset {
+  margin-top: 0.35rem;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: transparent;
+  color: var(--muted);
+  font: 10px/1.4 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sh-diff-reset:hover {
+  color: var(--ink);
+}
+
+/* Family records: closed by default, because the table is the main job. */
+.sh-records {
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--paper);
+}
+.sh-records-toggle {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr 1.5rem;
+  gap: 0.9rem;
+  align-items: baseline;
+  padding: 0.9rem 0.85rem;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 11px/1.4 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+}
+.sh-records-toggle small {
+  color: var(--muted);
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 11px;
+}
+.sh-records-toggle b {
+  font-weight: 400;
+  text-align: right;
+}
+.sh-records-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+  padding: 0.25rem 0.85rem 1.25rem;
+  border-top: 1px solid var(--line);
+}
+.sh-record {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+}
+.sh-record h2 {
+  margin: 0;
+  color: var(--muted);
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.sh-records-body .pf-input {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--ink);
+  font: 12px/1.45 var(--mono);
+}
+.sh-records-body .pf-input:focus-visible {
+  border-color: var(--dirty);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dirty) 15%, transparent);
+  outline: 0;
+}
+.sh-records-body .pf-label {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.sh-records-body .pf-reset {
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: transparent;
+  color: var(--muted);
+  font: 10px/1.3 var(--mono);
+  padding: 0;
+}
+.sh-records-body .pf-presets {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.sh-records-body .pf-presets-label {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.sh-records-body .pf-preset {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--ink);
+  font: 10px/1 var(--mono);
+}
+.sh-records-body .pf-preset[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.sh .pf-issues {
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  padding: 0.8rem 0.9rem;
+  background: #fdf3f3;
+  color: var(--danger);
+  font-size: 11px;
+}
+.sh .pf-issues strong {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sh .pf-issues ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.2rem;
+}
+.sh .pf-report {
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 0.8rem 0.9rem;
+  background: var(--paper);
+  font-size: 11px;
+}
+.sh .pf-report strong {
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sh .pf-report ul {
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.2rem;
+}
+.sh .pf-report li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--muted);
+}
+.sh .pf-report li[data-ok="false"] {
+  color: var(--danger);
+}
+
+/* The write action sits in a fixed footer: it is the end of the sheet. */
+.sh-foot {
+  position: fixed;
+  z-index: 20;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 0.7rem clamp(0.75rem, 2vw, 2rem);
+  border-top: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--paper) 94%, transparent);
+  backdrop-filter: blur(10px);
+}
+.sh-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.sh-status[data-kind="error"] {
+  color: var(--danger);
+}
+.sh-status[data-kind="done"] {
+  color: #1d6b3f;
+}
+.sh-status .pf-status-retry {
+  margin-left: 0.5rem;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.sh-write {
+  height: 2.35rem;
+  padding: 0 1.1rem;
+  border: 1px solid var(--ink);
+  border-radius: 3px;
+  background: var(--ink);
+  color: var(--paper);
+  font: 11px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.sh-write:not(:disabled):hover {
+  background: var(--dirty);
+  border-color: var(--dirty);
+}
+.sh-write:disabled {
+  opacity: 0.4;
+}
+
+@media (max-width: 900px) {
+  .sh-head {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+  .sh-counters {
+    gap: 1.25rem;
+  }
+  .sh-foot {
+    gap: 0.75rem;
+  }
+  .sh-status {
+    font-size: 10px;
+  }
+}
+
+/* Narrow screens: the header wraps and the table keeps its own scroller so the
+   page itself never gains a horizontal bar. */
+@media (max-width: 620px) {
+  .sh-top {
+    height: auto;
+    flex-wrap: wrap;
+    padding: 0.6rem 0;
+  }
+  .sh-top-right {
+    flex-wrap: wrap;
+  }
+  .sh-caption {
+    position: sticky;
+    left: 0;
+    width: min(100vw, 100%);
+  }
+  .sh-records-toggle {
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+  }
+  .sh-foot {
+    flex-wrap: wrap;
+  }
+  .sh-write {
+    width: 100%;
+  }
+  .sh-table {
+    min-width: 0;
+  }
+  .sh-table thead {
+    display: none;
+  }
+  .sh-row,
+  .sh-diff {
+    display: block;
+  }
+  .sh-row > * {
+    display: block;
+    border-bottom: 0;
+    padding: 0.35rem 0.7rem;
+  }
+  .sh-row-face {
+    display: block;
+    border-right: 0;
+    padding: 0.55rem 0.7rem 0.35rem;
+  }
+  .sh-cell {
+    min-width: 0;
+  }
+  .sh-cell .pf-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+  .sh-diff td {
+    display: block;
+    padding: 0 0.7rem 0.55rem;
+  }
+  .sh-col-face {
+    width: auto;
+  }
+}

@@ -6,7 +6,11 @@ use scraper::{Html, Selector};
 use crate::{
     discovery::{parser, CollectorResult},
     domain::{FontCandidate, ScanSource},
-    support::{emit_log, http::build_http_client, Logger},
+    support::{
+        emit_log,
+        http::{build_http_client, read_limited, MAX_DOCUMENT_BYTES},
+        Logger,
+    },
 };
 
 const MAX_STYLESHEETS: usize = 48;
@@ -24,7 +28,10 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
         .with_context(|| format!("Page returned an error response: {page_url}"))?;
 
     let resolved_page_url = response.url().clone();
-    let html_text = response.text().await.context("Failed to read page HTML")?;
+    let html_bytes = read_limited(response, MAX_DOCUMENT_BYTES)
+        .await
+        .context("Failed to read page HTML")?;
+    let html_text = String::from_utf8_lossy(&html_bytes);
 
     // Parse the page and extract everything we need from the DOM up front. The
     // `scraper::Html` document is not `Send`, so it must be fully consumed and
@@ -133,8 +140,9 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
                 continue;
             }
         };
-        let css = match response.text().await {
-            Ok(css) => css,
+        let resolved_stylesheet_url = response.url().to_string();
+        let css = match read_limited(response, MAX_DOCUMENT_BYTES).await {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
             Err(error) => {
                 warnings.push(format!(
                     "Failed reading stylesheet body {stylesheet_url}: {error}"
@@ -143,7 +151,8 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
             }
         };
 
-        let parsed = parser::parse_stylesheet(&css, &stylesheet_url, ScanSource::StaticCss)?;
+        let parsed =
+            parser::parse_stylesheet(&css, &resolved_stylesheet_url, ScanSource::StaticCss)?;
         fonts.extend(parsed.fonts);
         for import in parsed.imports {
             if !processed.contains(&import) && queued.insert(import.clone()) {
@@ -283,9 +292,44 @@ fn decode_html_entities(value: &str) -> String {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn redirected_stylesheets_resolve_fonts_and_imports_from_final_url() {
+        use axum::{response::Redirect, routing::get, Router};
+        let app = Router::new()
+            .route(
+                "/",
+                get(|| async { "<link rel=\"stylesheet\" href=\"/entry.css\">" }),
+            )
+            .route(
+                "/entry.css",
+                get(|| async { Redirect::temporary("/assets/main.css") }),
+            )
+            .route(
+                "/assets/main.css",
+                get(|| async {
+                    "@import 'more.css'; @font-face {font-family:Main;src:url('main.woff2')}"
+                }),
+            )
+            .route(
+                "/assets/more.css",
+                get(|| async { "@font-face {font-family:More;src:url('more.woff2')}" }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let report = discover(&format!("http://{address}/"), None).await.unwrap();
+        assert_eq!(report.fonts.len(), 2);
+        assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+        for font in report.fonts {
+            assert!(font.sources[0].url.contains("/assets/"));
+        }
+        server.abort();
+    }
+
     #[test]
     fn base_href_overrides_page_path_for_relative_links() {
-        let html = r#"<head><base href="/"><link rel="stylesheet" href="styles.abc123.css"></head>"#;
+        let html =
+            r#"<head><base href="/"><link rel="stylesheet" href="styles.abc123.css"></head>"#;
         let document = Html::parse_document(html);
         let page_url = url::Url::parse("https://example.com/typeface/gt-eesti").unwrap();
 

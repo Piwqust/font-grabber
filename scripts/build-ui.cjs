@@ -46,6 +46,9 @@ const STYLES = [
   {
     out: "core/src/web/style.css",
     parts: [
+      "node_modules/open-props/shadows.min.css",
+      "node_modules/open-props/borders.min.css",
+      "node_modules/open-props/easings.min.css",
       "core/src/web/styles/fonts-web.css",
       "core/src/web/styles/base.css",
       "core/src/web/styles/components.css",
@@ -81,7 +84,15 @@ function buildStyles() {
   }
 }
 
-const LICENSED = ["preact", "motion", "motion-dom", "motion-utils"];
+const LICENSED = [
+  "preact",
+  "motion",
+  "motion-dom",
+  "motion-utils",
+  "@floating-ui/dom",
+  "@floating-ui/core",
+  "@floating-ui/utils",
+];
 
 function writeNotices() {
   let notice = "Bundled UI dependencies. Built using npm run build:ui.\n\n";

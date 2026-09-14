@@ -1,17 +1,15 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use reqwest::{header::REFERER, Client};
 
 use crate::{
     domain::{CachedFont, FontCandidate, FontFormat, TransferMethod},
-    support::{next_available_path, sanitize_file_stem, validate_public_url},
+    support::{
+        http::{read_limited, MAX_FONT_BYTES},
+        sanitize_file_stem, validate_public_url, write_unique_file,
+    },
 };
-
-const MAX_FONT_BYTES: usize = 64 * 1024 * 1024;
 
 pub async fn download_font(
     client: Client,
@@ -37,16 +35,15 @@ pub async fn download_font(
         match response {
             Ok(response) => match response.error_for_status() {
                 Ok(response) => {
-                    let bytes = response
-                        .bytes()
-                        .await
-                        .context("Failed to read download body")?;
+                    let bytes = match read_limited(response, MAX_FONT_BYTES).await {
+                        Ok(bytes) => bytes,
+                        Err(error) => {
+                            last_error = Some(error);
+                            continue;
+                        }
+                    };
                     if bytes.len() < 100 {
                         last_error = Some(anyhow!("downloaded file too small ({})", bytes.len()));
-                        continue;
-                    }
-                    if bytes.len() > MAX_FONT_BYTES {
-                        last_error = Some(anyhow!("downloaded file exceeds the 64 MiB limit"));
                         continue;
                     }
 
@@ -82,8 +79,5 @@ fn write_cache_file(
     let weight = sanitize_file_stem(&font.weight).to_ascii_lowercase();
     let style = sanitize_file_stem(&font.style).to_ascii_lowercase();
     let filename = format!("{}-{}-{}.{}", family, weight, style, format.extension());
-    let path = next_available_path(&cache_dir.join(filename));
-    fs::write(&path, bytes)
-        .with_context(|| format!("Failed to write cache file {}", path.display()))?;
-    Ok(path)
+    write_unique_file(&cache_dir.join(filename), bytes).context("Failed to write font cache file")
 }

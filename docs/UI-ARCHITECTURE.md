@@ -29,7 +29,14 @@ core/src/web/
       Extension.jsx  Footer.jsx
     catalog/              results
       Catalog.jsx  Toolbar.jsx  FamilyRow.jsx  FaceCard.jsx
-      Preview.jsx  SelectionPanel.jsx  Reports.jsx
+      Preview.jsx  SelectionPanel.jsx  Reports.jsx  ExportSettings.jsx
+    metadata/             the name-table editor
+      MetadataEditor.jsx  the third top-level screen, next to landing and catalogue
+      FaceList.jsx        the face column, previews and the "differs" marker
+      MetadataForm.jsx    the family form and the per-face overrides
+      MetaField.jsx       one field: value, original, reset
+      DeliverPanel.jsx    ZIP / folder choice and the apply button
+      derive.js           rename cascade, PostScript and file-name rules, validation
   styles/
     fonts-web.css         @font-face, /assets paths
     fonts-ext.css         @font-face, extension paths
@@ -70,6 +77,18 @@ npm run build:ui
 cargo build --manifest-path core/Cargo.toml --release --offline
 ```
 
+## Checks
+
+```
+node scripts/check-metadata-ui.cjs 8790        front end only, /api/metadata/* mocked
+node scripts/check-metadata-editor.cjs <url>   end to end against a running binary
+```
+
+The first needs nothing but the built assets. The second needs the release
+binary serving on a free port (8790 and up; 8787 and 8788 belong to the user)
+and reads the name table out of the ZIP it downloads, so it catches anything
+that goes wrong between the form and the bytes on disk.
+
 ## State
 
 `store.jsx` holds one object and updates it through `patch`. Components read
@@ -77,6 +96,25 @@ what they need and call actions; none of them keep a second copy of the truth.
 The store owns the scan lifecycle (including cancellation), selection, filtering,
 preview settings, export and the coverage check, and mirrors what matters into
 `sessionStorage` so a reload keeps the collection.
+
+`metadata` is a slice of that same store, not a second one: `open`, `source`,
+`uploadId`, `fonts` (what `/api/metadata/inspect` read out of the files),
+`familyDraft`, `faceDrafts`, `inspecting`, `applying`, `status` and `report`.
+The store owns the whole editing lifecycle — `openMetadataFromSelection`,
+`openMetadataFromFiles`, `setFamilyField`, `setFaceField`, `resetField`,
+`applyMetadata`, `closeMetadata` — and mirrors the draft into `sessionStorage`
+(`fount-metadata-v1`) the way the scan session is mirrored, so a reload keeps
+the draft and the upload session id. Components in `metadata/` read the draft
+and call those actions; `derive.js` is the only place that knows how a family
+rename turns into full names, PostScript names and file names.
+
+Every request still goes through `lib/api.js`, which owns the two metadata
+endpoints as well: `inspectMetadata` (scan ids, or local files read to base64)
+and `applyMetadata`. The apply response has the same shape as `/api/export`,
+so the download, the ZIP fetch and `Reports.jsx` are reused rather than
+rebuilt. On the Rust side the routes live in `core/src/app/serve/metadata.rs`,
+the name-table rewriting in `core/src/convert/name_repair.rs`. The contract
+between the two sides is `docs/METADATA-EDITOR.md`.
 
 The extension keeps its state in the popup component instead, because its
 lifecycle is different: the popup is destroyed every time it closes, and what

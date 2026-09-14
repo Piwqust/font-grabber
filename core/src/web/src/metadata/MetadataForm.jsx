@@ -62,8 +62,8 @@ export function MetadataForm({ issues }) {
 
   return (
     <div class="metadata-form">
-      <section class="meta-section" aria-labelledby="meta-names">
-        <h2 class="meta-section-title" id="meta-names">
+      <section class="meta-section" aria-labelledby="meta-names-section">
+        <h2 class="meta-section-title" id="meta-names-section">
           Names
         </h2>
         <p class="meta-section-note">
@@ -82,8 +82,11 @@ export function MetadataForm({ issues }) {
         </div>
       </section>
 
-      <section class="meta-section" aria-labelledby="meta-authorship">
-        <h2 class="meta-section-title" id="meta-authorship">
+      <details class="meta-advanced" open>
+        <summary>Additional metadata <span>Author, licence, version and description</span></summary>
+        <div class="meta-advanced-body">
+      <section class="meta-section" aria-labelledby="meta-authorship-section">
+        <h2 class="meta-section-title" id="meta-authorship-section">
           Authorship
         </h2>
         {field("manufacturer", "Author or foundry")}
@@ -96,8 +99,8 @@ export function MetadataForm({ issues }) {
         })}
       </section>
 
-      <section class="meta-section" aria-labelledby="meta-legal">
-        <h2 class="meta-section-title" id="meta-legal">
+      <section class="meta-section" aria-labelledby="meta-legal-section">
+        <h2 class="meta-section-title" id="meta-legal-section">
           Legal
         </h2>
         {field("copyright", "Copyright", { multiline: true, rows: 2 })}
@@ -122,8 +125,8 @@ export function MetadataForm({ issues }) {
         })}
       </section>
 
-      <section class="meta-section" aria-labelledby="meta-version">
-        <h2 class="meta-section-title" id="meta-version">
+      <section class="meta-section" aria-labelledby="meta-version-section">
+        <h2 class="meta-section-title" id="meta-version-section">
           Version and description
         </h2>
         {field("version", "Version", {
@@ -133,6 +136,8 @@ export function MetadataForm({ issues }) {
         })}
         {field("description", "Description", { multiline: true, rows: 3 })}
       </section>
+        </div>
+      </details>
     </div>
   );
 }
