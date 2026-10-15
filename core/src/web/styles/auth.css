@@ -1,0 +1,13 @@
+.auth-page { min-height: 100svh; display: flex; flex-direction: column; padding: 2rem var(--gutter); }
+.auth-brand { display: flex; align-items: center; gap: .6rem; font-size: 1.25rem; font-weight: 600; }
+.auth-edition { margin-left: auto; font: .7rem var(--mono); color: var(--muted); }
+.auth-main { width: min(100%, 31rem); margin: auto; padding: 4rem 0; }
+.auth-eyebrow { font: .7rem var(--mono); letter-spacing: .06em; color: var(--muted); margin-bottom: 1.5rem; }
+.auth-main h1 { font: 400 clamp(2.6rem, 6vw, 4.25rem)/1.04 var(--serif); letter-spacing: -.04em; margin: 0 0 1.5rem; }
+.auth-main h1 em { color: var(--accent); font-weight: 400; }
+.auth-description { color: var(--ink-soft); max-width: 25rem; line-height: 1.6; margin-bottom: 2.5rem; }
+.auth-form { display: grid; gap: 1rem; border-top: 1px solid var(--line); padding-top: 1.75rem; }
+.auth-error { min-height: 1.5em; margin: 0; color: var(--error); font-size: .85rem; line-height: 1.5; }
+.auth-footer { color: var(--muted); font: .7rem var(--mono); padding-top: 1rem; border-top: 1px solid var(--line); }
+.auth-notice { position: fixed; z-index: 1000; bottom: 1rem; inset-inline: 1rem; padding: 1rem; background: var(--surface); color: var(--error); border: 1px solid var(--line); }
+@media (max-width: 420px) { .auth-edition { font-size: .6rem; } .auth-page { padding-top: 1.25rem; } }

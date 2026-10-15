@@ -108,7 +108,54 @@ function collectFontsInPage(opts) {
     /* performance API unavailable */
   }
 
-  // 2b. Site catalog adapter — Displaay. The tester only fetches the styles you
+  // 2a. FontFace objects built from a CSS url() source (capture.js records them).
+  //     Sites like commercialtype.com never write an @font-face rule: they call
+  //     `new FontFace("Graphik", ['url("/webfonts/…woff2")', 'url("…woff")'], {…})`.
+  //     The browser fetches those itself, so window.fetch never sees them and the
+  //     performance entry alone carries no family/weight/style. This is the only
+  //     place both halves are available, so it both adds and enriches candidates.
+  try {
+    for (const face of window.__fontGrabberUrlFaces || []) {
+      if (!face || !face.url) continue;
+      const weight = face.weight ? normWeight(face.weight) : "400";
+      const style = face.style ? normStyle(face.style) : "normal";
+      const variable = /\s/.test((face.weight || "").trim()) || /\s/.test((face.stretch || "").trim());
+      const existing = out.get(face.url);
+      if (existing) {
+        if (face.family && (!existing.family || existing.family.length < 2)) existing.family = face.family;
+        if (existing.weight === "400" && weight !== "400") existing.weight = weight;
+        if (existing.style === "normal" && style !== "normal") existing.style = style;
+        if (variable) existing.variable = true;
+        continue;
+      }
+      addCandidate(face.url, document.baseURI, face.family, weight, style, "", variable);
+    }
+  } catch {
+    /* no url-sourced FontFace records */
+  }
+
+  // 2b. document.fonts as a last resort for the family names of dynamically added
+  //     faces. A FontFace exposes no source URL, so this can only fill in a name
+  //     when exactly one unnamed candidate matches the weight/style — enough to
+  //     stop a tester font from being reported as "(Unknown)".
+  try {
+    const named = [];
+    document.fonts.forEach((face) => {
+      const family = stripQuotes(face.family);
+      if (!family) return;
+      named.push({ family, weight: normWeight(face.weight), style: normStyle(face.style) });
+    });
+    for (const entry of out.values()) {
+      if (entry.family && entry.family.length > 1) continue;
+      const matches = named.filter((f) => f.weight === entry.weight && f.style === entry.style);
+      const unique = new Set(matches.map((f) => f.family));
+      if (unique.size === 1) entry.family = matches[0].family;
+    }
+  } catch {
+    /* document.fonts unavailable */
+  }
+
+  // 2d. Site catalog adapter — Displaay. The tester only fetches the styles you
   //     interact with, so reading the page's own data is the only way to get the
   //     COMPLETE family (master variable font + every named instance) up front.
   try {
@@ -173,6 +220,82 @@ function collectFontsInPage(opts) {
     }
   } catch {
     /* catalog shape changed — fall back to network capture */
+  }
+
+ // 2c. Site catalog adapter — Commercial Type. The family landing page
+ //     (e.g. /catalog/graphik) renders specimen text as SVG images and never
+ //     loads the product fonts at all; individual style pages inject them
+ //     through `new FontFace(name, [url()], descriptors)`.  Reading the
+ //     /json/catalog.js JSON that the page's own JS already fetched lets us
+ //     enumerate every style and construct its deterministic /webfonts/ URL.
+ try {
+   if (/(^|\.)commercialtype\.com$/i.test(location.hostname)) {
+     // Extract the family slug from the catalog URL path.
+     const pathParts = location.pathname.split("/").filter(Boolean);
+     const isCtCatalog = pathParts[0] === "catalog" && pathParts.length >= 2;
+     if (isCtCatalog) {
+       const catalogResp = performance.getEntriesByType("resource")
+         .find((e) => /\/json\/catalog\.js/i.test(e.name));
+        var ctUrl = catalogResp ? catalogResp.name : "/json/catalog.js";
+        var ctXhr = new XMLHttpRequest();
+        ctXhr.open("GET", ctUrl, false);
+        ctXhr.send();
+        if (ctXhr.status < 200 || ctXhr.status >= 300) throw new Error(ctXhr.status);
+        var ctData = JSON.parse(ctXhr.responseText);
+        var ctNames = ctData.names || [];
+        var ctWeights = ctData.weights || [];
+        // style_options: [id, name, suffix, position, price]
+        var ctOpts = new Map();
+        for (var so of ctData.style_options || []) ctOpts.set(so[0], so);
+        var ctSuffix = function (ids) {
+          if (!Array.isArray(ids) || !ids.length) return "";
+          var oo = ids.map(function (i) { return ctOpts.get(Number(i)); })
+            .filter(Boolean).sort(function (a, b) { return a[3] - b[3]; });
+          return oo.length ? "-" + oo.map(function (o) { return o[2]; }).join("-") : "";
+        };
+        // collections: [id, catalog_item_id, name, ...]
+        var ctColById = new Map();
+        for (var cc of ctData.collections || []) ctColById.set(cc[0], { id: cc[0], url: cc[2].toLowerCase().replace(/\s+/g, "_") });
+        // families: [id, cat, collection_id, msc, name, price, langs, similar, style_option_ids, short_names, bonus]
+        var ctFams = [];
+        for (var ff of ctData.families || []) {
+          var fn = ff[4] || "";
+          ctFams.push({ id: ff[0], name: fn, url: fn.toLowerCase().replace(/\s+/g, "_"), base: fn.replace(/\s+/g, ""), colId: ff[2], optIds: Array.isArray(ff[8]) ? ff[8] : [] });
+        }
+        var ctFamById = new Map(ctFams.map(function (f) { return [f.id, f]; }));
+        // Determine which families the current URL targets.
+        var ctSlug = pathParts[1];
+        var ctCol = null;
+        for (var cv of ctColById.values()) { if (cv.url === ctSlug) { ctCol = cv; break; } }
+        var ctSelected;
+        if (pathParts.length >= 3) {
+          ctSelected = ctFams.filter(function (f) { return f.url === pathParts[2]; });
+        } else if (ctCol) {
+          ctSelected = ctFams.filter(function (f) { return f.colId === ctCol.id; });
+        } else {
+          ctSelected = ctFams.filter(function (f) { return f.url === ctSlug; });
+        }
+        // styles: [id, cat, family_id, name_idx, price_idx, weight_idx, italic_style, italic_for, ...]
+        for (var sf of ctSelected) {
+          var sfx = ctSuffix(sf.optIds);
+          for (var ss of ctData.styles || []) {
+            if (ss[2] !== sf.id) continue;
+            var sn = ctNames[ss[3]] || "";
+            var sw = ctWeights[ss[5]] || 400;
+            var si = Number(ss[7]) > 0;
+            var cs = ss[14] || "";
+            var csn = (sf.name + cs).replace(/\s+/g, "-");
+            var sb = sf.base + "-" + sn.replace(/\s+/g, "") + sfx + "-Web";
+            var sp = "/webfonts/" + sf.url + "/" + sb;
+            for (var ext of [".woff2", ".woff"]) {
+              addCandidate(sp + ext, location.href, csn, String(sw), si ? "italic" : "normal", "");
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    /* Commercial Type catalog shape changed — fall back to page capture */
   }
 
   // 3. Fonts captured by capture.js (FontFace/fetch hooks) — dynamically injected

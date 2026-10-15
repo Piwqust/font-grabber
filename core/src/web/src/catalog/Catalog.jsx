@@ -108,7 +108,7 @@ function MobileSelectionBar() {
         disabled={store.busy || store.metadata.inspecting}
         onClick={store.openMetadataFromSelection}
       >
-        Edit metadata
+        Customize font
       </Button>
       <Button
         variant="solid"

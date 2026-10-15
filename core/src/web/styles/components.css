@@ -274,6 +274,7 @@
 
 /* --- Checkbox ------------------------------------------------------------- */
 .checkbox {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;

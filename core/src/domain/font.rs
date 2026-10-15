@@ -27,10 +27,11 @@ impl FontFormat {
             Self::Woff
         } else if lower.contains("truetype") || lower == "ttf" {
             Self::TrueType
+        } else if lower.contains("embedded-opentype") || lower == "eot" {
+            // Must precede the plain "opentype" check, which would also match it.
+            Self::EmbeddedOpenType
         } else if lower.contains("opentype") || lower == "otf" {
             Self::OpenType
-        } else if lower.contains("embedded-opentype") || lower == "eot" {
-            Self::EmbeddedOpenType
         } else if lower.contains("svg") {
             Self::Svg
         } else {
@@ -292,4 +293,17 @@ pub struct SavedFont {
     pub scan_source: ScanSource,
     pub transfer_method: TransferMethod,
     pub source_url: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedded_opentype_hint_is_not_treated_as_opentype() {
+        let format = FontFormat::normalize("'embedded-opentype'");
+        assert_eq!(format, FontFormat::EmbeddedOpenType);
+        assert!(!format.can_convert());
+        assert_eq!(FontFormat::normalize("opentype"), FontFormat::OpenType);
+    }
 }

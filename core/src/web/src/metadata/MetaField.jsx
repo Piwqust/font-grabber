@@ -25,6 +25,7 @@ export function MetaField({
   mono = false,
   readOnly = false,
   disabled = false,
+  compact = false,
   onChange,
   onReset,
 }) {
@@ -48,7 +49,7 @@ export function MetaField({
         hint={error || hint}
         onInput={(event) => onChange(event.currentTarget.value)}
       />
-      {readOnly ? null : (
+      {readOnly || (compact && !edited) ? null : (
         <p class="meta-origin">
           <span class="meta-origin-label">
             Original:{" "}
@@ -63,6 +64,7 @@ export function MetaField({
               variant="quiet"
               class="meta-reset"
               label={`Reset ${label}`}
+              disabled={disabled}
               onClick={onReset}
             />
           ) : null}

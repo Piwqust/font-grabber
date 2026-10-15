@@ -92,7 +92,11 @@ pub async fn run(args: GrabArgs) -> Result<()> {
     .await?;
     let drafts = cli_name_drafts(family_override, subfamily_override, &selected);
     let conversion = convert::convert_fonts(&downloads.cached, drafts.as_ref(), logger.clone())?;
-    let saved = output::save_converted_fonts(&conversion.converted, &request.output_dir, logger)?;
+    let saving =
+        output::save_converted_fonts_report(&conversion.converted, &request.output_dir, logger)?;
+    let saved = saving.saved;
+    let mut conversion_failures = conversion.failures;
+    conversion_failures.extend(saving.failures);
 
     let report = GrabReport {
         page_url: request.scan.page_url,
@@ -102,7 +106,7 @@ pub async fn run(args: GrabArgs) -> Result<()> {
         saved_count: saved.len(),
         warnings: scan_report.warnings,
         download_failures: downloads.failures,
-        conversion_failures: conversion.failures,
+        conversion_failures,
         saved,
     };
 
@@ -134,12 +138,10 @@ fn cli_name_drafts(
         selected
             .iter()
             .map(|font| {
-                let family = family_override
-                    .clone()
-                    .unwrap_or_else(|| font.family.clone());
-                let subfamily = subfamily_override.clone().unwrap_or_else(|| {
-                    convert::subfamily_from_weight_style(&font.weight, &font.style)
-                });
+                // Blank means "keep the font's embedded name" (resolved at convert time),
+                // so `--family X` alone does not collapse every weight to "Regular".
+                let family = family_override.clone().unwrap_or_default();
+                let subfamily = subfamily_override.clone().unwrap_or_default();
                 (
                     font.id.clone(),
                     NameDraft {
@@ -154,4 +156,30 @@ fn cli_name_drafts(
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::ScanSource;
+
+    #[test]
+    fn family_override_leaves_subfamily_to_the_font() {
+        let font = FontCandidate {
+            id: "light".into(),
+            family: "css-alias".into(),
+            style: "normal".into(),
+            weight: "300".into(),
+            stretch: None,
+            sources: vec![],
+            unicode_range: None,
+            scripts: vec![],
+            variable: false,
+            scan_source: ScanSource::StaticCss,
+        };
+        let drafts = cli_name_drafts(Some("Acme".into()), None, &[font]).unwrap();
+        assert_eq!(drafts["light"].family, "Acme");
+        assert_eq!(drafts["light"].subfamily, "");
+        assert!(cli_name_drafts(None, None, &[]).is_none());
+    }
 }

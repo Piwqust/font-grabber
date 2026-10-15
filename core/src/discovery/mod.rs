@@ -1,3 +1,4 @@
+mod commercial_type;
 mod headless;
 mod parser;
 mod static_css;
@@ -45,7 +46,15 @@ pub async fn scan_with_progress(
     emit_log(logger.as_ref(), format!("Scanning {}", request.page_url));
 
     let mut warnings = Vec::new();
-    let static_result = match static_css::discover(&request.page_url, logger.clone()).await {
+    let static_scan = async {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(75),
+            static_css::discover(&request.page_url, logger.clone()),
+        )
+        .await
+        .context("Page source scan took too long")?
+    };
+    let static_result = match static_scan.await {
         Ok(result) => result,
         Err(error) if !matches!(request.mode, crate::domain::DiscoveryMode::Static) => {
             warnings.push(format!("Static scan failed: {error}"));
@@ -57,6 +66,11 @@ pub async fn scan_with_progress(
     warnings.extend(static_result.warnings);
     let mut used_browser = false;
     let mut fonts = static_result.fonts;
+
+    match commercial_type::discover(&request.page_url).await {
+        Ok(catalog_fonts) => fonts = parser::merge_fonts(fonts, catalog_fonts),
+        Err(error) => warnings.push(format!("Catalog discovery unavailable: {error}")),
+    }
 
     if request.mode.should_collect_browser() {
         stage(ScanStage::Browser);

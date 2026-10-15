@@ -9,6 +9,8 @@ const MAX_FILE_BYTES: usize = 20 * 1024 * 1024;
 const MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
 const UPLOAD_TTL: Duration = Duration::from_secs(30 * 60);
 const MAX_SESSIONS: usize = 32;
+/// Base64 inflates uploads by 4/3; the rest is JSON framing and file names.
+pub(super) const INSPECT_BODY_LIMIT: usize = MAX_TOTAL_BYTES * 4 / 3 + 1024 * 1024;
 
 #[derive(Clone)]
 pub(super) struct Upload {
@@ -35,7 +37,7 @@ pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route(
             "/api/metadata/inspect",
-            post(inspect).layer(DefaultBodyLimit::max(MAX_TOTAL_BYTES * 4 / 3 + 1024 * 1024)),
+            post(inspect).layer(DefaultBodyLimit::max(INSPECT_BODY_LIMIT)),
         )
         .route("/api/metadata/apply", post(apply))
 }
@@ -52,11 +54,20 @@ enum InspectSource {
     Scan {
         url: String,
         mode: Option<String>,
+        #[serde(deserialize_with = "bounded_ids")]
         ids: Vec<String>,
     },
     Upload {
+        // Generous enough that validate_uploads still reports the friendly limit.
+        #[serde(deserialize_with = "bounded_files")]
         files: Vec<UploadFile>,
     },
+}
+
+fn bounded_files<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Vec<UploadFile>, D::Error> {
+    bounded_vec(deserializer, MAX_FILES * 4)
 }
 
 #[derive(Deserialize)]
@@ -83,7 +94,14 @@ struct ApplyBody {
     source: ApplySource,
     delivery: Option<String>,
     output_dir: Option<String>,
+    #[serde(deserialize_with = "bounded_edits")]
     fonts: Vec<Edit>,
+}
+
+fn bounded_edits<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Vec<Edit>, D::Error> {
+    bounded_vec(deserializer, MAX_IDS)
 }
 
 fn response(result: Result<serde_json::Value>) -> Response {
@@ -136,15 +154,17 @@ async fn scan_fonts(
     mode: Option<&str>,
     ids: &[String],
 ) -> Result<(Upload, Vec<serde_json::Value>, Vec<String>)> {
-    anyhow::ensure!(!ids.is_empty(), "No fonts were selected");
+    let ids = unique_ids(ids, state.hosted)?;
+    let wanted: HashSet<&str> = ids.iter().map(String::as_str).collect();
     let mode = parse_mode(mode);
     let report = workflow::report_for(state, url, mode).await?;
     let selected: Vec<_> = report
         .fonts
         .iter()
-        .filter(|f| ids.contains(&f.id))
+        .filter(|f| wanted.contains(f.id.as_str()))
         .cloned()
         .collect();
+    let found: HashSet<&str> = selected.iter().map(|f| f.id.as_str()).collect();
     let directory = Arc::new(tempdir()?);
     let downloads = fetch::download_fonts(
         &selected,
@@ -161,8 +181,8 @@ async fn scan_fonts(
         .into_iter()
         .map(|(id, error)| serde_json::json!({"id":id,"error":error}))
         .collect();
-    for id in ids {
-        if !selected.iter().any(|f| &f.id == id) {
+    for id in &ids {
+        if !found.contains(id.as_str()) {
             failures.push(serde_json::json!({"id":id,"error":"This file is no longer in the collection. Scan again."}));
         }
     }
@@ -266,12 +286,16 @@ async fn inspect_request(state: &AppState, body: InspectBody) -> Result<serde_js
                 valid.push(font.clone());
             }
             Err(error) => {
+                if is_upload {
+                    // Unreadable uploads would otherwise sit in tmpfs, uncounted, until the TTL.
+                    let _ = std::fs::remove_file(&font.cached_path);
+                }
                 failures.push(serde_json::json!({"id":font.info.id,"error":format!("{error:#}")}))
             }
         }
     }
     let mut result = serde_json::json!({"fonts":fonts,"failures":failures});
-    if is_upload {
+    if is_upload && !valid.is_empty() {
         upload.fonts = valid;
         let id = upload
             .directory
@@ -282,6 +306,18 @@ async fn inspect_request(state: &AppState, body: InspectBody) -> Result<serde_js
             .to_string();
         let mut uploads = state.uploads.lock().await;
         uploads.retain(|_, u| u.created.elapsed() < UPLOAD_TTL);
+        let bytes = |u: &Upload| -> u64 {
+            u.fonts
+                .iter()
+                .filter_map(|f| std::fs::metadata(&f.cached_path).ok())
+                .map(|m| m.len())
+                .sum()
+        };
+        let retained_bytes: u64 = uploads.values().map(bytes).sum();
+        anyhow::ensure!(
+            !state.hosted || retained_bytes + bytes(&upload) <= 128 * 1024 * 1024,
+            "Temporary upload space is full. Wait for earlier uploads to expire."
+        );
         anyhow::ensure!(
             uploads.len() < MAX_SESSIONS,
             "Too many upload sessions. Wait for an earlier session to expire."
@@ -340,6 +376,7 @@ async fn apply_request(state: &AppState, body: ApplyBody) -> Result<serde_json::
         ids.iter().collect::<HashSet<_>>().len() == ids.len(),
         "Duplicate font IDs"
     );
+    unique_ids(&ids, state.hosted)?;
     for edit in &body.fonts {
         validate_names(&edit.names)?;
     }
@@ -453,6 +490,8 @@ mod tests {
 
     fn state() -> AppState {
         AppState {
+            auth: None,
+            jobs: jobs::semaphore(),
             webdriver_url: String::new(),
             concurrency: 1,
             hosted: false,

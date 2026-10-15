@@ -22,6 +22,8 @@ pub enum Commands {
     Scan(ScanArgs),
     Doctor(DoctorArgs),
     Serve(ServeArgs),
+    /// Create an Argon2id hash. Reads the password privately from the terminal.
+    PasswordHash,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -124,6 +126,17 @@ pub struct ServeArgs {
         help = "Hosted mode: ZIP only, block private-network fetches, disable folder delivery"
     )]
     pub hosted: bool,
+
+    #[arg(long, default_value = "/run/secrets/fount_password_hash")]
+    pub password_hash_file: PathBuf,
+
+    /// Exact external HTTPS origin, required in hosted mode.
+    #[arg(long)]
+    pub public_origin: Option<String>,
+
+    /// Exact address of the TLS proxy allowed to supply forwarding headers.
+    #[arg(long)]
+    pub trusted_proxy: Option<std::net::IpAddr>,
 }
 
 #[derive(Args, Debug, Clone)]

@@ -1,5 +1,8 @@
+mod auth;
+mod jobs;
 mod metadata;
 mod workflow;
+pub(crate) use auth::password_hash;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -47,6 +50,8 @@ type ScanCache = HashMap<String, CachedScan>;
 /// reuses the discovered candidates instead of re-scanning the page.
 #[derive(Clone)]
 struct AppState {
+    auth: Option<Arc<auth::Auth>>,
+    jobs: Arc<tokio::sync::Semaphore>,
     webdriver_url: String,
     concurrency: usize,
     hosted: bool,
@@ -96,6 +101,8 @@ fn start_scan_cleanup(scans: Arc<Mutex<ScanCache>>) {
 
 pub async fn run(args: ServeArgs) -> Result<()> {
     let state = AppState {
+        auth: auth::Auth::load(&args)?,
+        jobs: jobs::semaphore(),
         webdriver_url: args.webdriver_url.clone(),
         concurrency: args.concurrency,
         hosted: args.hosted,
@@ -104,45 +111,189 @@ pub async fn run(args: ServeArgs) -> Result<()> {
         uploads: Arc::new(Mutex::new(HashMap::new())),
     };
 
+    if args.hosted {
+        crate::support::http::restrict_network();
+    }
     workflow::start_cleanup(state.exports.clone());
     metadata::start_cleanup(state.uploads.clone());
     start_scan_cleanup(state.scans.clone());
-    let app = Router::new()
-        .route("/", get(index))
-        .route("/style.css", get(style))
-        .route("/app.js", get(script))
-        .route("/favicon.svg", get(favicon))
-        .route("/assets/:name", get(asset))
-        .route("/api/scan", post(scan))
-        .route("/api/grab", post(grab))
-        .route("/api/export", post(workflow::export))
-        .route("/api/export/:id", get(workflow::archive))
-        .route("/api/coverage", post(workflow::coverage))
-        .route("/api/font", get(font_proxy))
-        .merge(metadata::routes())
-        .with_state(state);
+    let app = router(state);
+    let app = if args.hosted {
+        app
+    } else {
+        app.layer(axum::middleware::from_fn_with_state(
+            Arc::<str>::from(args.host.as_str()),
+            local_guard,
+        ))
+    };
 
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .with_context(|| format!("Failed to bind {addr}"))?;
-
     let url = format!("http://{}:{}", display_host(&args.host), args.port);
-    if args.hosted {
-        println!("Fount (hosted) is running at {url}");
-    } else {
-        println!("Fount is running at {url}");
-    }
-    println!("Press Ctrl+C to stop.");
-
+    println!("Fount is running at {url}");
     if !args.no_open {
         open_browser(&url);
     }
-
-    axum::serve(listener, app)
-        .await
-        .context("Web server error")?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        #[cfg(unix)]
+        {
+            let mut terminate =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("SIGTERM handler");
+            tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+    })
+    .await
+    .context("Web server error")?;
     Ok(())
+}
+
+fn router(state: AppState) -> Router {
+    let protected = Router::new()
+        .route("/api/scan", post(scan))
+        .route("/api/grab", post(grab))
+        .route("/api/export", post(workflow::export))
+        .route("/api/coverage", post(workflow::coverage))
+        .merge(metadata::routes())
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            jobs::limit,
+        ))
+        .route("/api/export/:id", get(workflow::archive))
+        .route("/api/font", get(font_proxy))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::protect,
+        ));
+    Router::new()
+        .route("/", get(index))
+        .route("/style.css", get(style))
+        .route("/app.js", get(script))
+        .route("/favicon.svg", get(favicon))
+        .route("/assets/:name", get(asset))
+        .route("/healthz", get(|| async { "ok" }))
+        .merge(protected)
+        .merge(auth::routes())
+        .with_state(state)
+}
+
+/// Local mode has no session, so a DNS-rebound page on `evil.example` would be
+/// same-origin with the server and could proxy the LAN or write files. Rebinding
+/// needs a domain name, so only loopback names, IP literals and the bound host pass.
+fn local_host_allowed(host: &url::Host<&str>, bind: &str) -> bool {
+    match host {
+        url::Host::Domain(name) => {
+            let name = name.trim_end_matches('.');
+            name.eq_ignore_ascii_case("localhost")
+                || name.to_ascii_lowercase().ends_with(".localhost")
+                || name.eq_ignore_ascii_case(bind)
+        }
+        url::Host::Ipv4(_) | url::Host::Ipv6(_) => true,
+    }
+}
+
+fn local_request_allowed(
+    headers: &axum::http::HeaderMap,
+    method: &axum::http::Method,
+    bind: &str,
+) -> bool {
+    let parse = |value: &str| url::Url::parse(value).ok();
+    let host_ok = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| parse(&format!("http://{v}/")))
+        .is_some_and(|url| url.host().is_some_and(|h| local_host_allowed(&h, bind)));
+    if !host_ok {
+        return false;
+    }
+    if matches!(*method, axum::http::Method::GET | axum::http::Method::HEAD) {
+        return true;
+    }
+    // Browsers always send Origin on cross-site POSTs; tools like curl send none.
+    match headers.get(header::ORIGIN).map(|v| v.to_str()) {
+        None => true,
+        Some(Ok(origin)) => parse(origin)
+            .is_some_and(|url| url.host().is_some_and(|h| local_host_allowed(&h, bind))),
+        Some(Err(_)) => false,
+    }
+}
+
+async fn local_guard(
+    State(bind): State<Arc<str>>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if !local_request_allowed(request.headers(), request.method(), &bind) {
+        return error_response(
+            StatusCode::FORBIDDEN,
+            "Open Fount from http://127.0.0.1 or http://localhost.",
+        );
+    }
+    next.run(request).await
+}
+
+/// Longest id list any request may carry; hosted mode narrows it to 80.
+const MAX_IDS: usize = 2000;
+
+/// Bounds a JSON array while it is parsed, before a huge body can allocate it.
+fn bounded_vec<'de, D, T>(deserializer: D, max: usize) -> std::result::Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct Bounded<T>(usize, std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Bounded<T> {
+        type Value = Vec<T>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "a list of at most {} items", self.0)
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> std::result::Result<Vec<T>, A::Error> {
+            let mut items = Vec::new();
+            while let Some(item) = seq.next_element()? {
+                if items.len() == self.0 {
+                    return Err(serde::de::Error::invalid_length(self.0 + 1, &self));
+                }
+                items.push(item);
+            }
+            Ok(items)
+        }
+    }
+    deserializer.deserialize_seq(Bounded(max, std::marker::PhantomData))
+}
+
+fn bounded_ids<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Vec<String>, D::Error> {
+    bounded_vec(deserializer, MAX_IDS)
+}
+
+/// Order-preserving dedupe, so repeated ids cannot multiply per-id work.
+fn unique_ids(ids: &[String], hosted: bool) -> Result<Vec<String>> {
+    let mut seen = HashSet::new();
+    let ids: Vec<String> = ids
+        .iter()
+        .filter(|id| seen.insert(id.as_str()))
+        .cloned()
+        .collect();
+    anyhow::ensure!(!ids.is_empty(), "No fonts were selected");
+    anyhow::ensure!(
+        !hosted || ids.len() <= 80,
+        "Choose at most 80 fonts per request"
+    );
+    Ok(ids)
 }
 
 fn display_host(host: &str) -> String {
@@ -157,11 +308,43 @@ fn display_host(host: &str) -> String {
 // Static assets (embedded so the binary is self-contained)
 // ---------------------------------------------------------------------------
 
-async fn index(State(state): State<AppState>) -> Html<String> {
-    Html(include_str!("../web/index.html").replace(
-        "__FOUNT_HOSTED__",
-        if state.hosted { "true" } else { "false" },
-    ))
+const INDEX_HTML: &str = include_str!("../web/index.html");
+
+/// Only the bundle and the one pre-paint theme script may run, so an injected
+/// tag cannot execute. Previews load fonts from this origin or from blob: URLs.
+fn content_security_policy() -> &'static str {
+    static POLICY: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        use base64::Engine;
+        use sha2::Digest;
+        let inline = INDEX_HTML
+            .split_once("<script>")
+            .and_then(|(_, rest)| rest.split_once("</script>"))
+            .map(|(script, _)| script)
+            .unwrap_or_default();
+        let hash = base64::engine::general_purpose::STANDARD
+            .encode(sha2::Sha256::digest(inline.as_bytes()));
+        format!(
+            "default-src 'self'; script-src 'self' 'sha256-{hash}'; \
+             style-src 'self' 'unsafe-inline'; font-src 'self' blob: data:; \
+             img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; \
+             base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+        )
+    });
+    &POLICY
+}
+
+async fn index(State(state): State<AppState>) -> Response {
+    (
+        [
+            (header::CONTENT_SECURITY_POLICY, content_security_policy()),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        Html(INDEX_HTML.replace(
+            "__FOUNT_HOSTED__",
+            if state.hosted { "true" } else { "false" },
+        )),
+    )
+        .into_response()
 }
 
 async fn style() -> impl IntoResponse {
@@ -306,7 +489,7 @@ struct GrabBody {
     url: String,
     #[serde(default)]
     mode: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "bounded_ids")]
     ids: Vec<String>,
     /// "zip" (default) streams an archive; "folder" writes files to disk.
     #[serde(default)]
@@ -360,9 +543,10 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
         }
     }
 
-    if body.ids.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "No fonts were selected");
-    }
+    let ids = match unique_ids(&body.ids, state.hosted) {
+        Ok(ids) => ids,
+        Err(error) => return error_response(StatusCode::BAD_REQUEST, &error.to_string()),
+    };
 
     let delivery = body.delivery.as_deref().unwrap_or("zip");
     if state.hosted && delivery == "folder" {
@@ -379,6 +563,7 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
             .lock()
             .await
             .get(&cache_key(mode, &page_url))
+            .filter(|scan| scan.created.elapsed() < SCAN_TTL)
             .map(|scan| scan.report.clone());
         match cached {
             Some(report) => report,
@@ -399,7 +584,7 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
         }
     };
 
-    let wanted: HashSet<&str> = body.ids.iter().map(String::as_str).collect();
+    let wanted: HashSet<&str> = ids.iter().map(String::as_str).collect();
     let selected: Vec<FontCandidate> = report
         .fonts
         .iter()
@@ -459,8 +644,11 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
             .map(PathBuf::from)
             .unwrap_or_else(|| default_output_dir(&page_url));
 
-        match output::save_converted_fonts(&conversion.converted, &output_dir, None) {
-            Ok(saved) => {
+        match output::save_converted_fonts_report(&conversion.converted, &output_dir, None) {
+            Ok(batch) => {
+                let saved = batch.saved;
+                let mut conversion_failures = conversion.failures;
+                conversion_failures.extend(batch.failures);
                 let result = FolderResult {
                     output_dir: output_dir.display().to_string(),
                     saved_count: saved.len(),
@@ -478,7 +666,7 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
                         .collect(),
                     warnings: report.warnings.clone(),
                     download_failures: downloads.failures,
-                    conversion_failures: conversion.failures,
+                    conversion_failures,
                 };
                 Json(result).into_response()
             }
@@ -514,15 +702,30 @@ struct FontQuery {
 /// Proxy a remote font file so the browser can load it same-origin for previews
 /// (cross-origin `@font-face` is blocked by CORS on many font hosts).
 async fn font_proxy(State(state): State<AppState>, Query(query): Query<FontQuery>) -> Response {
+    static PREVIEWS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let permit = if state.hosted {
+        match tokio::time::timeout(Duration::from_secs(30), PREVIEWS.acquire()).await {
+            Ok(Ok(permit)) => Some(permit),
+            _ => {
+                return error_response(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Previews are busy. Try again shortly.",
+                )
+            }
+        }
+    } else {
+        None
+    };
     let parsed = match url::Url::parse(&query.url) {
         Ok(url) if matches!(url.scheme(), "http" | "https") => url,
         _ => return error_response(StatusCode::BAD_REQUEST, "Invalid font URL"),
     };
+    let referer = font_page_from_scan(&state, parsed.as_str()).await;
     if state.hosted {
         if let Err(error) = validate_public_url(parsed.as_str()).await {
             return error_response(StatusCode::BAD_REQUEST, &error.to_string());
         }
-        if !font_url_from_scan(&state, parsed.as_str()).await {
+        if referer.is_none() {
             return error_response(
                 StatusCode::FORBIDDEN,
                 "Font URL was not part of a scanned page",
@@ -535,7 +738,11 @@ async fn font_proxy(State(state): State<AppState>, Query(query): Query<FontQuery
         Err(error) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     };
 
-    let response = match client.get(parsed.clone()).send().await {
+    let mut request = client.get(parsed.clone());
+    if let Some(page_url) = referer {
+        request = request.header(header::REFERER, page_url);
+    }
+    let response = match request.send().await {
         Ok(response) => response,
         Err(error) => return error_response(StatusCode::BAD_GATEWAY, &error.to_string()),
     };
@@ -553,13 +760,17 @@ async fn font_proxy(State(state): State<AppState>, Query(query): Query<FontQuery
             Err(error) => return error_response(StatusCode::BAD_GATEWAY, &error.to_string()),
         };
 
+    let body = axum::body::Body::from_stream(futures::stream::once(async move {
+        let _permit = permit;
+        Ok::<_, std::convert::Infallible>(axum::body::Bytes::from(bytes))
+    }));
     (
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, content_type_for(parsed.as_str())),
-            (header::CACHE_CONTROL, "public, max-age=3600".to_string()),
+            (header::CACHE_CONTROL, "private, max-age=3600".to_string()),
         ],
-        bytes,
+        body,
     )
         .into_response()
 }
@@ -677,13 +888,14 @@ fn name_drafts_from_overrides(overrides: &[NameOverride]) -> Option<HashMap<Stri
     )
 }
 
-async fn font_url_from_scan(state: &AppState, url: &str) -> bool {
+async fn font_page_from_scan(state: &AppState, url: &str) -> Option<String> {
     let scans = state.scans.lock().await;
-    scans.values().any(|scan| {
+    scans.values().find_map(|scan| {
         scan.report
             .fonts
             .iter()
             .any(|font| font.sources.iter().any(|source| source.url == url))
+            .then(|| scan.report.page_url.clone())
     })
 }
 
@@ -720,6 +932,159 @@ fn open_browser(url: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_guard_rejects_rebound_hosts_and_foreign_origins() {
+        use axum::http::{HeaderMap, HeaderValue, Method};
+        let headers = |host: &str, origin: Option<&str>| {
+            let mut map = HeaderMap::new();
+            map.insert(header::HOST, HeaderValue::from_str(host).unwrap());
+            if let Some(origin) = origin {
+                map.insert(header::ORIGIN, HeaderValue::from_str(origin).unwrap());
+            }
+            map
+        };
+        let bind = "127.0.0.1";
+        for host in [
+            "127.0.0.1:8787",
+            "localhost:8787",
+            "[::1]:8787",
+            "192.168.1.5:8787",
+        ] {
+            assert!(local_request_allowed(
+                &headers(host, None),
+                &Method::GET,
+                bind
+            ));
+        }
+        assert!(!local_request_allowed(
+            &headers("evil.example:8787", None),
+            &Method::GET,
+            bind
+        ));
+        assert!(local_request_allowed(
+            &headers("127.0.0.1:8787", Some("http://127.0.0.1:8787")),
+            &Method::POST,
+            bind
+        ));
+        assert!(local_request_allowed(
+            &headers("127.0.0.1:8787", None),
+            &Method::POST,
+            bind
+        ));
+        assert!(!local_request_allowed(
+            &headers("127.0.0.1:8787", Some("https://evil.example")),
+            &Method::POST,
+            bind
+        ));
+        assert!(!local_request_allowed(
+            &headers("127.0.0.1:8787", Some("null")),
+            &Method::POST,
+            bind
+        ));
+        assert!(local_request_allowed(
+            &headers("studio.lan:8787", Some("http://studio.lan:8787")),
+            &Method::POST,
+            "studio.lan"
+        ));
+    }
+
+    #[test]
+    fn csp_allows_exactly_the_inline_theme_script() {
+        use base64::Engine;
+        use sha2::Digest;
+        assert_eq!(INDEX_HTML.matches("<script>").count(), 1);
+        let script = INDEX_HTML
+            .split_once("<script>")
+            .unwrap()
+            .1
+            .split_once("</script>")
+            .unwrap()
+            .0;
+        assert!(script.contains("fount-theme"));
+        let hash = base64::engine::general_purpose::STANDARD
+            .encode(sha2::Sha256::digest(script.as_bytes()));
+        let policy = content_security_policy();
+        assert!(policy.contains(&format!("'sha256-{hash}'")));
+        assert!(!policy.contains("unsafe-eval"));
+        assert!(policy.contains("frame-ancestors 'none'"));
+    }
+
+    #[test]
+    fn id_lists_are_bounded_while_parsing_and_deduplicated() {
+        let ids: Vec<String> = (0..=MAX_IDS).map(|i| i.to_string()).collect();
+        let body = serde_json::json!({"url":"https://example.com","ids":ids});
+        assert!(serde_json::from_value::<GrabBody>(body).is_err());
+        let ids = vec!["b".to_string(), "a".into(), "b".into()];
+        assert_eq!(unique_ids(&ids, true).unwrap(), ["b", "a"]);
+        assert!(unique_ids(&[], false).is_err());
+        let many: Vec<String> = (0..81).map(|i| i.to_string()).collect();
+        assert!(unique_ids(&many, true).is_err());
+        assert!(unique_ids(&many, false).is_ok());
+    }
+
+    #[tokio::test]
+    async fn preview_forwards_only_the_cached_source_page() {
+        use axum::http::HeaderMap;
+        let origin = Router::new().route(
+            "/font.woff2",
+            get(|headers: HeaderMap| async move {
+                if headers.get(header::REFERER).and_then(|h| h.to_str().ok())
+                    == Some("https://example.com/catalog")
+                {
+                    (StatusCode::OK, "wOF2fixture")
+                } else {
+                    (StatusCode::FORBIDDEN, "missing source page")
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let font_url = format!("http://{}/font.woff2", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, origin).await.unwrap();
+        });
+        let state = AppState {
+            auth: None,
+            jobs: jobs::semaphore(),
+            hosted: false,
+            webdriver_url: String::new(),
+            concurrency: 1,
+            scans: Arc::new(Mutex::new(HashMap::new())),
+            uploads: Arc::new(Mutex::new(HashMap::new())),
+            exports: Arc::new(Mutex::new(HashMap::new())),
+        };
+        let mut scan = report("https://example.com/catalog");
+        scan.fonts.push(FontCandidate {
+            id: "fixture".into(),
+            family: "Fixture".into(),
+            style: "normal".into(),
+            weight: "400".into(),
+            stretch: None,
+            sources: vec![crate::domain::FontSource {
+                url: font_url.clone(),
+                format: crate::domain::FontFormat::Woff2,
+            }],
+            unicode_range: None,
+            scripts: Vec::new(),
+            variable: false,
+            scan_source: crate::domain::ScanSource::StaticCss,
+        });
+        remember_scan(&state, "fixture".into(), scan).await;
+        assert!(
+            font_page_from_scan(&state, "https://unscanned.example/font.woff2")
+                .await
+                .is_none()
+        );
+        let response = font_proxy(State(state), Query(FontQuery { url: font_url })).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            axum::body::to_bytes(response.into_body(), 100)
+                .await
+                .unwrap(),
+            "wOF2fixture"
+        );
+        server.abort();
+    }
 
     fn report(url: &str) -> ScanReport {
         ScanReport {

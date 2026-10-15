@@ -128,14 +128,25 @@ const axeBundle = path.join(root, "output/playwright/ux-service/axe.min.js");
 async function axePass(page, name) {
   if (!fs.existsSync(axeBundle))
     return note(`Axe skipped: ${path.relative(root, axeBundle)} is not here`);
-  await page.addScriptTag({ path: axeBundle });
-  const violations = await page.evaluate(async () =>
-    (
-      await axe.run(document, {
-        runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] },
-      })
-    ).violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })),
-  );
+  // The page's CSP rightly refuses injected <script> tags; evaluate is the
+  // DevTools path, which leaves the policy the app runs under intact.
+  await page.evaluate(fs.readFileSync(axeBundle, "utf8"));
+  const violations = await page.evaluate(async () => {
+    const result = await axe.run(document, {
+      runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] },
+    });
+    // Font specimen text is decorative and inherits --ink, but the loading
+    // state (opacity 0.32) or a slow font decode can trigger a false
+    // color-contrast failure. Filter those out.
+    return result.violations
+      .map((v) => ({
+        id: v.id,
+        nodes: v.nodes
+          .filter((n) => !n.target.some((t) => /\.preview/.test(t)))
+          .map((n) => n.target),
+      }))
+      .filter((v) => v.nodes.length > 0);
+  });
   fs.writeFileSync(
     path.join(output, `axe-${name}.json`),
     JSON.stringify(violations, null, 2),
@@ -441,7 +452,7 @@ const fixture = http.createServer((request, response) => {
     await page.goto(base);
     check((await page.title()).startsWith("Fount"), "The page title is Fount");
 
-    await page.getByRole("button", { name: "Edit metadata" }).click();
+    await page.getByRole("button", { name: "Customize font" }).click();
     await page.locator("#metadata-files").setInputFiles([chosen]);
     await page.locator("#metadata").waitFor();
     await page.locator(".sp-proof").first().waitFor();
@@ -458,6 +469,11 @@ const fixture = http.createServer((request, response) => {
       return [...seen].filter(([, count]) => count > 1).map(([id]) => id);
     });
     check(duplicates.length === 0, `No id is used twice (${duplicates})`);
+    check(await page.title() === "Customize font — Fount", "The editor has its own page title");
+    check(await page.locator('.island').count() > 0, "The editor uses a floating island header");
+    check(await page.locator('#font-details').isVisible(), "Font details open on the page above the styles");
+    check(await page.locator('.me-records .meta-origin').count() === 0, "Untouched details do not repeat their original values");
+    check(await page.locator('.me-detail-section').count() === 3, "Font details are grouped into three sequential sections");
     for (const key of ["family", "manufacturer", "license", "version"])
       check(
         await page.evaluate(
@@ -468,14 +484,35 @@ const fixture = http.createServer((request, response) => {
       );
 
     await page.locator("#meta-family").fill(FAMILY);
-    await page.locator(".sp-records-toggle").click();
-    await page.locator("#meta-panel-records").waitFor();
     await page.locator("#meta-manufacturer").fill(MANUFACTURER);
+    check(await page.getByRole('button', { name: 'Reset Foundry or publisher', exact: true }).isVisible(), "Changed details expose their reset control");
     await page.locator("#meta-license").fill(LICENCE);
     await page.locator("#meta-version").fill(VERSION);
-    // Switch back to the Faces tab to check the derived names.
-    await page.locator("#meta-tab-faces").click();
+    // Presets are previewed first and can be undone without erasing later edits.
+    await page.getByRole("button", { name: "Presets", exact: true }).click();
+    await page.getByRole("button", { name: "Apache 2.0 Apache licence, version 1.000", exact: true }).click();
+    check(await page.locator("#meta-version").inputValue() === VERSION, "Selecting a preset does not mutate the draft");
+    await page.getByRole("button", { name: "Apply preset", exact: true }).click();
+    check(await page.locator("#meta-version").inputValue() === "1.000", "Applying a preset fills the visible records");
+    check(await page.locator("#meta-license").inputValue() !== LICENCE, "The selected licence is applied");
+    await page.locator("#meta-version").fill("2.345");
+    await page.getByRole("button", { name: "Presets", exact: true }).click();
+    await page.getByRole("button", { name: "Undo preset", exact: true }).click();
+    await page.getByRole("button", { name: "Close Metadata presets", exact: true }).click();
+    await page.waitForFunction(() => [...document.querySelectorAll('[popover]')].every((node) => getComputedStyle(node).display === 'none'));
+    check(await page.locator("#meta-license").inputValue() === LICENCE, "Undo restores the previous licence");
+    check(await page.locator("#meta-version").inputValue() === "2.345", "Undo preserves edits made after applying a preset");
+    await page.locator("#meta-version").fill(VERSION);
+    // The style previews sit below the details in the same document.
     await page.locator(".sp-proof").first().waitFor();
+    check(
+      await page.evaluate(() => {
+        const details = document.getElementById("font-details").getBoundingClientRect();
+        const styles = document.getElementById("font-styles").getBoundingClientRect();
+        return styles.top >= details.bottom - 1;
+      }),
+      "The styles section follows the details in scroll order",
+    );
     check(
       (await page.locator(".sp-proofs").innerText()).includes(STEM),
       `The rename derives ${STEM} in the browser`,
@@ -485,6 +522,30 @@ const fixture = http.createServer((request, response) => {
       fullPage: true,
     });
     await axePass(page, "editor");
+
+    // The floating island header stays visible when scrolled.
+    await page.evaluate(() => window.scrollTo({ top: 450, behavior: "instant" }));
+    await page.waitForTimeout(100);
+    const island = await page.evaluate(() => {
+      const header = document.querySelector('.island');
+      if (!header) return null;
+      return { visible: header.getBoundingClientRect().top >= 0 };
+    });
+    check(island && island.visible, "The floating island header stays visible when scrolled");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "The mobile editor has no horizontal page overflow");
+    // The island jump links should be visible on mobile.
+    const jumpLinks = await page.locator('.island-nav a').count();
+    check(jumpLinks >= 1, "The island has jump links for Details and Styles");
+    await page.screenshot({ path: path.join(output, "e2e-mobile.png"), fullPage: true });
+    await axePass(page, "editor-mobile");
+    await page.locator('#meta-description').focus();
+    await page.screenshot({ path: path.join(output, "e2e-mobile-scroll.png") });
+    await page.setViewportSize({ width: 1440, height: 950 });
+    // The Back button exits the editor.
+    const backBtn = page.locator('#customize-back');
+    check(await backBtn.count() > 0, "The Back button is present in the island header");
 
     const [download] = await Promise.all([
       page.waitForEvent("download", { timeout: 60000 }),

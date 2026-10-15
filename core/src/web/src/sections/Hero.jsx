@@ -16,7 +16,7 @@ import { Tooltip } from "../ui/Tooltip.jsx";
 
 const TASKS = [
   { value: "find", label: "Find fonts" },
-  { value: "metadata", label: "Edit metadata" },
+  { value: "metadata", label: "Customize font" },
 ];
 
 /**
@@ -94,9 +94,9 @@ export function Hero() {
             </>
           ) : (
             <>
-              Give a font file
+              Your font.
               <br />
-              its <em>proper</em> name.
+              Your <em>details.</em>
             </>
           )}
         </h1>
@@ -113,8 +113,8 @@ export function Hero() {
         ) : (
           <>
             <p class="hero-lede" data-enter>
-              Fix the family, style and internal names of a TTF or OTF so it
-              installs and lists the way it should.
+              Customize your font’s name, author, websites and licence details.
+              Update its metadata and download a new copy.
             </p>
             <div class="hero-control" data-enter>
               <MetadataIntro />

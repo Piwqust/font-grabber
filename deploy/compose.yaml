@@ -1,34 +1,75 @@
 name: fount
-
 services:
   app:
+    image: fount:${FOUNT_VERSION:?Set an explicit release version}
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    expose:
-      - "8787"
+    command: ["serve", "--host", "0.0.0.0", "--port", "8787", "--no-open", "--hosted", "--concurrency", "1", "--public-origin", "https://${FOUNT_DOMAIN:?Set FOUNT_DOMAIN}", "--trusted-proxy", "172.30.87.3"]
+    expose: ["8787"]
     init: true
-    shm_size: 2gb
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=536870912,mode=1777
+    shm_size: 128mb
+    mem_limit: 1400m
+    memswap_limit: 1400m
+    cpus: 0.85
+    pids_limit: 192
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 1
+    restart: "on-failure:5"
+    stop_grace_period: 30s
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    secrets: [fount_password_hash]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "3", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      private:
+        ipv4_address: 172.30.87.2
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}
   caddy:
-    image: caddy:2-alpine
-    env_file:
-      - .env
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+    image: caddy:2.10.2-alpine
+    environment:
+      FOUNT_DOMAIN: ${FOUNT_DOMAIN:?Set FOUNT_DOMAIN}
+    ports: ["80:80", "443:443", "443:443/udp"]
     restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    cap_add: ["NET_BIND_SERVICE"]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 64
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=16777216"]
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-
+    networks:
+      private:
+        ipv4_address: 172.30.87.3
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}
+networks:
+  private:
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: 172.30.87.0/29
+secrets:
+  fount_password_hash:
+    file: ${FOUNT_PASSWORD_HASH_FILE:-/etc/fount/password.hash}
 volumes:
   caddy_data:
   caddy_config:

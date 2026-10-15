@@ -1,0 +1,21 @@
+[Unit]
+Description=Fount private website
+Requires=docker.service
+Wants=fount-egress.service
+After=docker.service network-online.target fount-egress.service
+Wants=network-online.target
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/fount/deploy
+ExecStartPre=/usr/bin/docker compose create
+ExecStartPre=/bin/sh /opt/fount/deploy/egress.sh
+ExecStart=/usr/bin/docker compose up -d --no-build --wait
+ExecStop=/usr/bin/docker compose stop
+RemainAfterExit=yes
+TimeoutStartSec=180
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

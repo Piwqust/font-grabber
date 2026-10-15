@@ -24,5 +24,6 @@ async fn main() -> Result<()> {
         Commands::Scan(args) => scan::run(args).await,
         Commands::Doctor(args) => doctor::run(args).await,
         Commands::Serve(args) => serve::run(args).await,
+        Commands::PasswordHash => serve::password_hash(),
     }
 }

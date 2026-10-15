@@ -3,12 +3,13 @@ mod name_repair;
 use std::{collections::HashMap, fs};
 
 use anyhow::{anyhow, bail, Context, Result};
-use ttf_parser::{name_id, Face};
+use ttf_parser::{name_id, Face, PlatformId};
 use wuff::{decompress_woff1, decompress_woff2};
 
 use crate::{
     domain::{
-        CachedFont, ConvertedFont, FontFormat, FontScript, NameDraft, OutputFormat, VariableAxis,
+        CachedFont, ConvertedFont, FontCandidate, FontFormat, FontScript, NameDraft, OutputFormat,
+        VariableAxis,
     },
     support::{emit_log, sanitize_file_stem, Logger},
 };
@@ -87,6 +88,7 @@ const WOFF2_SIGNATURE: u32 = 0x774F_4632;
 const SFNT_TRUETYPE: u32 = 0x0001_0000;
 const SFNT_OPENTYPE: u32 = 0x4F54_544F;
 const SFNT_TRUE: u32 = 0x7472_7565;
+const MAX_BATCH_OUTPUT_BYTES: usize = 128 * 1024 * 1024;
 const LATIN_PROBES: &[char] = &['A', 'a'];
 const CYRILLIC_PROBES: &[char] = &['Ж', 'ж', 'Я', 'я'];
 const GREEK_PROBES: &[char] = &['Ω', 'β'];
@@ -119,9 +121,19 @@ pub fn convert_fonts(
     drafts: Option<&HashMap<String, NameDraft>>,
     logger: Option<Logger>,
 ) -> Result<ConversionBatch> {
+    convert_fonts_within(cached_fonts, drafts, logger, MAX_BATCH_OUTPUT_BYTES)
+}
+
+fn convert_fonts_within(
+    cached_fonts: &[CachedFont],
+    drafts: Option<&HashMap<String, NameDraft>>,
+    logger: Option<Logger>,
+    max_total_bytes: usize,
+) -> Result<ConversionBatch> {
     let mut converted = Vec::new();
     let mut failures = Vec::new();
     let mut failure_details = Vec::new();
+    let mut total_bytes = 0usize;
 
     for (index, cached) in cached_fonts.iter().enumerate() {
         emit_log(
@@ -135,8 +147,19 @@ pub fn convert_fonts(
         );
 
         let draft = drafts.and_then(|map| map.get(&cached.info.id));
-        match convert_font(cached, draft) {
-            Ok(font) => converted.push(font),
+        let result = convert_font(cached, draft).and_then(|font| {
+            // Over-budget fonts fail individually so the ones already converted still ship.
+            anyhow::ensure!(
+                total_bytes + font.data.len() <= max_total_bytes,
+                "Expanded fonts exceed 128 MiB. Choose fewer files."
+            );
+            Ok(font)
+        });
+        match result {
+            Ok(font) => {
+                total_bytes += font.data.len();
+                converted.push(font);
+            }
             Err(error) => {
                 failure_details.push((cached.info.id.clone(), error.to_string()));
                 failures.push(format!(
@@ -162,6 +185,8 @@ fn convert_font(cached: &CachedFont, draft: Option<&NameDraft>) -> Result<Conver
         )
     })?;
     let sfnt = decompress_to_sfnt(&raw, cached.downloaded_format)?;
+    let resolved = draft.map(|draft| resolve_draft_names(&sfnt, draft, &cached.info));
+    let draft = resolved.as_ref();
     let named = if let Some(draft) = draft {
         name_repair::apply_name_draft(&sfnt, draft)?
     } else {
@@ -175,6 +200,28 @@ fn convert_font(cached: &CachedFont, draft: Option<&NameDraft>) -> Result<Conver
         converted.output_stem = draft_output_stem(draft);
     }
     Ok(converted)
+}
+
+/// A blank family or subfamily in a legacy draft (e.g. CLI `--family` alone)
+/// keeps the font's own embedded name; deriving it from the CSS weight gave
+/// every non-bold weight the same "Regular" subfamily and colliding names.
+fn resolve_draft_names(sfnt: &[u8], draft: &NameDraft, info: &FontCandidate) -> NameDraft {
+    let mut draft = draft.clone();
+    if draft.name_changes.is_some()
+        || (!draft.family.trim().is_empty() && !draft.subfamily.trim().is_empty())
+    {
+        return draft;
+    }
+    let embedded = name_repair::inspect_sfnt_names(sfnt).unwrap_or_default();
+    if draft.family.trim().is_empty() {
+        draft.family = name_repair::preferred_existing_name(&embedded, &[16, 1])
+            .unwrap_or_else(|| info.family.clone());
+    }
+    if draft.subfamily.trim().is_empty() {
+        draft.subfamily = name_repair::preferred_existing_name(&embedded, &[17, 2])
+            .unwrap_or_else(|| subfamily_from_weight_style(&info.weight, &info.style));
+    }
+    draft
 }
 
 fn draft_output_stem(draft: &NameDraft) -> Option<String> {
@@ -243,7 +290,7 @@ fn analyze_font(sfnt_data: Vec<u8>, cached: &CachedFont) -> Result<ConvertedFont
     })
 }
 
-fn refresh_info_from_face(info: &mut crate::domain::FontCandidate, face: &Face<'_>) {
+fn refresh_info_from_face(info: &mut FontCandidate, face: &Face<'_>) {
     if let Some(family) = preferred_face_name(face, &[name_id::TYPOGRAPHIC_FAMILY, name_id::FAMILY])
     {
         info.family = family;
@@ -260,12 +307,24 @@ fn refresh_info_from_face(info: &mut crate::domain::FontCandidate, face: &Face<'
 
 fn preferred_face_name(face: &Face<'_>, name_ids: &[u16]) -> Option<String> {
     for name_id in name_ids {
-        if let Some(value) = face
+        if let Some((_, value)) = face
             .names()
             .into_iter()
             .filter(|name| name.name_id == *name_id)
-            .filter_map(|name| name.to_string())
-            .find(|value| value.chars().any(|character| character.is_alphanumeric()))
+            .filter_map(|name| {
+                let platform_id = match name.platform_id {
+                    PlatformId::Unicode => 0,
+                    PlatformId::Macintosh => 1,
+                    PlatformId::Iso => 2,
+                    PlatformId::Windows => 3,
+                    PlatformId::Custom => 4,
+                };
+                let rank =
+                    name_repair::name_record_rank(platform_id, name.encoding_id, name.language_id);
+                name.to_string().map(|value| (rank, value))
+            })
+            .filter(|(_, value)| value.chars().any(|character| character.is_alphanumeric()))
+            .min_by_key(|(rank, _)| *rank)
         {
             return Some(value);
         }
@@ -302,6 +361,17 @@ fn detect_supported_scripts_from_face(face: &Face<'_>) -> Vec<FontScript> {
 }
 
 pub(crate) fn decompress_to_sfnt(data: &[u8], format: FontFormat) -> Result<Vec<u8>> {
+    anyhow::ensure!(
+        data.len() <= 64 * 1024 * 1024,
+        "Font exceeds the 64 MiB limit"
+    );
+    let signature = read_u32(data, 0)?;
+    if matches!(signature, WOFF_SIGNATURE | WOFF2_SIGNATURE) {
+        anyhow::ensure!(
+            read_u32(data, 16)? <= 32 * 1024 * 1024,
+            "Expanded font exceeds the 32 MiB limit"
+        );
+    }
     match format {
         FontFormat::Woff2 => Ok(decompress_woff2(data).context("WOFF2 decompression failed")?),
         FontFormat::Woff => Ok(decompress_woff1(data).context("WOFF decompression failed")?),
@@ -334,12 +404,12 @@ fn read_u32(buf: &[u8], offset: usize) -> Result<u32> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     use crate::domain::FontScript;
 
-    fn script_fixture(probes: &[&[char]]) -> Vec<u8> {
+    pub(crate) fn script_fixture(probes: &[&[char]]) -> Vec<u8> {
         let mut font = decompress_to_sfnt(
             include_bytes!("../web/assets/geist-400.woff2"),
             FontFormat::Woff2,
@@ -369,10 +439,86 @@ mod tests {
         font
     }
 
+    fn cached_geist(directory: &std::path::Path, id: &str, weight: &str) -> CachedFont {
+        let path = directory.join(format!("{id}.woff2"));
+        fs::write(&path, include_bytes!("../web/assets/geist-400.woff2")).unwrap();
+        CachedFont {
+            info: FontCandidate {
+                id: id.into(),
+                family: "css-alias".into(),
+                style: "normal".into(),
+                weight: weight.into(),
+                stretch: None,
+                sources: vec![],
+                unicode_range: None,
+                scripts: vec![],
+                variable: false,
+                scan_source: crate::domain::ScanSource::StaticCss,
+            },
+            cached_path: path,
+            downloaded_format: FontFormat::Woff2,
+            source_url: "https://example.com/geist.woff2".into(),
+            transfer_method: crate::domain::TransferMethod::Http,
+        }
+    }
+
+    #[test]
+    fn batch_size_limit_fails_only_the_fonts_over_budget() {
+        let directory = tempfile::tempdir().unwrap();
+        let fonts: Vec<_> = ["a", "b", "c"]
+            .iter()
+            .map(|id| cached_geist(directory.path(), id, "400"))
+            .collect();
+        let one = convert_fonts_within(&fonts[..1], None, None, usize::MAX).unwrap();
+        let size = one.converted[0].data.len();
+
+        let batch = convert_fonts_within(&fonts, None, None, size * 3 / 2).unwrap();
+        assert_eq!(batch.converted.len(), 1);
+        assert_eq!(batch.converted[0].info.id, "a");
+        assert_eq!(batch.failure_details.len(), 2);
+        assert!(batch.failures[0].contains("128 MiB"));
+    }
+
+    #[test]
+    fn blank_draft_names_keep_the_embedded_names() {
+        let directory = tempfile::tempdir().unwrap();
+        let original = inspect_names(include_bytes!("../web/assets/geist-400.woff2")).unwrap();
+        // A CSS weight of 700 used to force "Bold" even though the face is Regular.
+        let cached = cached_geist(directory.path(), "a", "700");
+
+        let family_only = NameDraft {
+            family: "Renamed".into(),
+            ..NameDraft::default()
+        };
+        let font = convert_font(&cached, Some(&family_only)).unwrap();
+        let names = inspect_names(&font.data).unwrap();
+        assert_eq!(names.family.as_deref(), Some("Renamed"));
+        assert_eq!(names.subfamily, original.subfamily);
+
+        let subfamily_only = NameDraft {
+            subfamily: "Condensed".into(),
+            ..NameDraft::default()
+        };
+        let font = convert_font(&cached, Some(&subfamily_only)).unwrap();
+        let names = inspect_names(&font.data).unwrap();
+        assert_eq!(names.family, original.family);
+        assert_eq!(names.subfamily.as_deref(), Some("Condensed"));
+    }
+
     #[test]
     fn axis_name_maps_common_tags() {
         assert_eq!(axis_name(b"wght"), "Weight");
         assert_eq!(axis_name(b"XXXX"), "XXXX");
+    }
+
+    #[test]
+    fn oversized_expanded_font_is_rejected_before_decompression() {
+        let mut data = include_bytes!("../web/assets/geist-400.woff2").to_vec();
+        data[16..20].copy_from_slice(&(33u32 * 1024 * 1024).to_be_bytes());
+        assert!(decompress_to_sfnt(&data, FontFormat::Woff2)
+            .unwrap_err()
+            .to_string()
+            .contains("32 MiB"));
     }
 
     #[test]

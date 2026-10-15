@@ -1,10 +1,15 @@
 // Every call to the Rust server lives here, so components never build a URL or
 // parse a response body themselves.
 
+import { apiFetch } from "./auth.js";
+
 async function readJson(response) {
   const data = await response.json().catch(() => ({}));
-  if (!response.ok)
-    throw new Error(data.error || `Request failed (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(data.error || `Request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
@@ -13,7 +18,7 @@ async function readJson(response) {
  * with a human-readable message for each one.
  */
 export async function scan({ url, mode, signal, onStage }) {
-  const response = await fetch("/api/scan", {
+  const response = await apiFetch("/api/scan", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, mode, stream: true }),
@@ -61,7 +66,7 @@ export async function scan({ url, mode, signal, onStage }) {
 }
 
 export async function exportFonts({ url, mode, ids, delivery, outputDir }) {
-  const response = await fetch("/api/export", {
+  const response = await apiFetch("/api/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -76,14 +81,14 @@ export async function exportFonts({ url, mode, ids, delivery, outputDir }) {
 }
 
 export async function fetchArchive(downloadUrl) {
-  const response = await fetch(downloadUrl);
+  const response = await apiFetch(downloadUrl);
   if (!response.ok)
     throw new Error("The archive is unavailable. Prepare the download again.");
   return response.blob();
 }
 
 export async function checkCoverage({ url, mode, ids, text }) {
-  const response = await fetch("/api/coverage", {
+  const response = await apiFetch("/api/coverage", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url, mode, ids, text }),
@@ -116,18 +121,19 @@ export function fileToBase64(file) {
 }
 
 /** Reads the current name tables so the editor starts from real values. */
-export async function inspectMetadata(source) {
-  const response = await fetch("/api/metadata/inspect", {
+export async function inspectMetadata(source, signal) {
+  const response = await apiFetch("/api/metadata/inspect", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ source }),
+    signal,
   });
   return readJson(response);
 }
 
 /** Writes the draft into the fonts and returns an export-shaped result. */
 export async function applyMetadata({ source, delivery, outputDir, fonts }) {
-  const response = await fetch("/api/metadata/apply", {
+  const response = await apiFetch("/api/metadata/apply", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

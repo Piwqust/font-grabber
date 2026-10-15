@@ -18,7 +18,9 @@ import { Segmented } from "../../core/src/web/src/ui/Segmented.jsx";
 import { Slider } from "../../core/src/web/src/ui/Slider.jsx";
 import { Tooltip } from "../../core/src/web/src/ui/Tooltip.jsx";
 
-import * as engine from "./engine.js";
+import * as localEngine from "./engine.js";
+import { selectBackend } from "./backend.js";
+const engine = selectBackend(localEngine);
 import {
   previewFamily,
   resetPreviews,

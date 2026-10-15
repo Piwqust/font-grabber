@@ -80,3 +80,9 @@ to convert.
 - `downloads` — save the results.
 
 Nothing is sent anywhere; all work happens locally in your browser.
+
+The adapter boundary in `src/backend.js` is reserved for a future hosted
+integration. The popup currently selects the local engine and sends no data to
+Fount. Authentication/pairing constraints are documented in
+[`HOSTED-API.md`](../docs/HOSTED-API.md); a website session cookie cannot simply
+be reused by a cross-origin extension request.

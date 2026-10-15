@@ -22,6 +22,10 @@ nul
 .playwright-mcp/
 output/
 undefined/
+# Site probes and downloaded third-party fonts from manual verification
+/.probe/
+/.probe-*
+/.verify-*
 
 # Root-level scratch from earlier design passes (never part of the app)
 /*.png
@@ -38,6 +42,8 @@ yarn-debug.log*
 pnpm-debug.log*
 
 # Env
+deploy/secrets/
+*.password.hash
 *.local
 .env
 .env.*

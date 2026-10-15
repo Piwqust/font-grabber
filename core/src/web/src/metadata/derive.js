@@ -180,17 +180,41 @@ export function familyValue(meta, font, key) {
 /**
  * What each of the four name records of this face will say once the draft is
  * applied. A face field nobody has typed into is derived from the family name,
- * which is what makes a rename cascade.
+ * which is what makes a rename cascade. Until the family or style name actually
+ * changes there is nothing to cascade, so those fields keep the source values.
  */
 export function effectiveNames(meta, font) {
   const draft = meta.faceDrafts[font.id] || {};
   const typedFamily = meta.familyDraft.family;
   const family = typedFamily === undefined ? sourceFamily(font) : typedFamily;
   const subfamily = draft.subfamily ?? sourceSubfamily(font);
-  const fullName = draft.full_name ?? deriveFullName(family, subfamily);
-  const postscript = draft.postscript ?? derivePostscript(family, subfamily);
-  const filename = draft.filename ?? deriveFilename(postscript);
+  const renamed =
+    family !== sourceFamily(font) || subfamily !== sourceSubfamily(font);
+  const fullName =
+    draft.full_name ??
+    (renamed
+      ? deriveFullName(family, subfamily)
+      : sourceName(font, "full_name") ?? "");
+  const postscript =
+    draft.postscript ??
+    (renamed
+      ? derivePostscript(family, subfamily)
+      : sourceName(font, "postscript") ?? "");
+  const filename =
+    draft.filename ??
+    (renamed ? deriveFilename(postscript) : fileStem(font.file));
   return { family, subfamily, full_name: fullName, postscript, filename };
+}
+
+/** The server's rule for name ID 6: printable ASCII, no delimiters, 63 max. */
+export function postscriptProblem(value) {
+  if (value.length > 63) return "is longer than 63 characters";
+  for (const char of value) {
+    const code = char.codePointAt(0);
+    if (code < 33 || code > 126) return "may only use ASCII letters, digits and punctuation, without spaces";
+    if ("[](){}<>/%".includes(char)) return "may not contain [ ] ( ) { } < > / or %";
+  }
+  return null;
 }
 
 /** The name records this face changes, keyed as the API expects. */
@@ -273,10 +297,15 @@ export function draftIssues(meta) {
     const effective = effectiveNames(meta, font);
     // An empty family is already reported once; do not repeat it per face.
     if (!effective.family.trim()) continue;
-    if (effective.postscript.length > 63)
+    // Only a name that will be sent is checked, as on the server: an untouched
+    // source name is never rewritten, so it cannot block the download.
+    const problem =
+      effective.postscript !== (sourceName(font, "postscript") ?? "") &&
+      postscriptProblem(effective.postscript);
+    if (problem)
       issues.push({
         key: `postscript:${font.id}`,
-        message: `The PostScript name for ${effective.subfamily} is longer than 63 characters.`,
+        message: `The PostScript name for ${effective.subfamily} ${problem}.`,
       });
     if (!effective.filename)
       issues.push({

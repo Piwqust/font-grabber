@@ -1,10 +1,28 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::LazyLock,
+};
 
 use anyhow::{Context, Result};
 use regex::Regex;
 use url::Url;
 
 use crate::domain::{FontCandidate, FontFormat, FontSource, ScanSource};
+
+static FONT_FACE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)@font-face\s*\{(.*?)\}").expect("valid regex"));
+static SRC_URL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i)url\(\s*(?:\"([^\"]+)\"|'([^']+)'|([^\)\s]+))\s*\)\s*(?:format\(\s*['\"]?([^'\")\s]+)['\"]?\s*\))?"#,
+    )
+    .expect("valid regex")
+});
+static IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?is)@import\s+(?:url\(\s*)?(?:\"([^\"]+)\"|'([^']+)'|([^\)\s;]+))(?:\s*\))?[^;]*(?:;|$)"#,
+    )
+    .expect("valid regex")
+});
 
 pub struct ParsedStylesheet {
     pub fonts: Vec<FontCandidate>,
@@ -16,10 +34,9 @@ pub fn parse_stylesheet(
     base_url: &str,
     scan_source: ScanSource,
 ) -> Result<ParsedStylesheet> {
-    let block_re = Regex::new(r"(?is)@font-face\s*\{(.*?)\}")?;
     let mut fonts = Vec::new();
 
-    for captures in block_re.captures_iter(css) {
+    for captures in FONT_FACE_RE.captures_iter(css) {
         let Some(block_match) = captures.get(1) else {
             continue;
         };
@@ -176,32 +193,80 @@ pub fn merge_fonts(
     map.into_values().collect()
 }
 
+// CSS lets a later declaration override an earlier one (the "bulletproof"
+// `src` pattern relies on it), and `;` may appear inside `url(data:...;base64,...)`.
 fn capture_css_property(block: &str, property: &str) -> Option<String> {
-    let pattern = format!(r"(?is){}\s*:\s*([^;]+)(?:;|$)", regex::escape(property));
-    let re = Regex::new(&pattern).ok()?;
-    re.captures(block).and_then(|captures| {
-        captures
-            .get(1)
-            .map(|capture| capture.as_str().trim().to_string())
-    })
+    split_declarations(block)
+        .into_iter()
+        .rev()
+        .find_map(|declaration| {
+            let (name, value) = declaration.split_once(':')?;
+            let value = value.trim();
+            (name.trim().eq_ignore_ascii_case(property) && !value.is_empty())
+                .then(|| value.to_string())
+        })
+}
+
+fn split_declarations(block: &str) -> Vec<String> {
+    let mut declarations = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut depth = 0usize;
+    let mut chars = block.chars().peekable();
+
+    while let Some(character) = chars.next() {
+        match character {
+            '\\' => {
+                current.push(character);
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                }
+                continue;
+            }
+            '\'' | '"' if quote == Some(character) => quote = None,
+            '\'' | '"' if quote.is_none() => quote = Some(character),
+            // Unquoted `url(...)` may legally contain `/*`, so only strip comments outside parens.
+            '/' if quote.is_none() && depth == 0 && chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut previous = ' ';
+                for inner in chars.by_ref() {
+                    if previous == '*' && inner == '/' {
+                        break;
+                    }
+                    previous = inner;
+                }
+                continue;
+            }
+            '(' if quote.is_none() => depth += 1,
+            ')' if quote.is_none() => depth = depth.saturating_sub(1),
+            ';' if quote.is_none() && depth == 0 => {
+                declarations.push(std::mem::take(&mut current));
+                continue;
+            }
+            _ => {}
+        }
+        current.push(character);
+    }
+    declarations.push(current);
+    declarations
 }
 
 fn parse_src_value(src: &str, base_url: &str) -> Result<Vec<FontSource>> {
     let base = Url::parse(base_url).with_context(|| format!("Invalid base URL: {base_url}"))?;
-    let url_re = Regex::new(
-        r#"url\(\s*(?:\"([^\"]+)\"|'([^']+)'|([^\)\s]+))\s*\)\s*(?:format\(\s*['\"]?([^'\")\s]+)['\"]?\s*\))?"#,
-    )?;
     let mut seen = HashSet::new();
     let mut sources = Vec::new();
 
-    for captures in url_re.captures_iter(src) {
+    for captures in SRC_URL_RE.captures_iter(src) {
         let raw_url = captures
             .get(1)
             .or_else(|| captures.get(2))
             .or_else(|| captures.get(3))
             .map(|value| value.as_str())
             .unwrap_or_default();
-        if raw_url.starts_with("data:") {
+        if raw_url
+            .get(..5)
+            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
+        {
             continue;
         }
 
@@ -234,13 +299,10 @@ fn parse_src_value(src: &str, base_url: &str) -> Result<Vec<FontSource>> {
 
 fn extract_imports(css: &str, base_url: &str) -> Result<Vec<String>> {
     let base = Url::parse(base_url).with_context(|| format!("Invalid base URL: {base_url}"))?;
-    let import_re = Regex::new(
-        r#"(?is)@import\s+(?:url\(\s*)?(?:\"([^\"]+)\"|'([^']+)'|([^\)\s;]+))(?:\s*\))?[^;]*;"#,
-    )?;
     let mut seen = HashSet::new();
     let mut imports = Vec::new();
 
-    for captures in import_re.captures_iter(css) {
+    for captures in IMPORT_RE.captures_iter(css) {
         let Some(raw_url) = captures
             .get(1)
             .or_else(|| captures.get(2))
@@ -401,6 +463,57 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed.imports, vec!["https://example.com/fonts.css"]);
+    }
+
+    #[test]
+    fn parse_stylesheet_uses_last_src_declaration() {
+        let css = r#"
+            @font-face {
+                font-family: "Acme";
+                src: url(f.eot);
+                src: url(f.eot?#iefix) format('embedded-opentype'), url(f.woff2) format('woff2');
+            }
+        "#;
+        let parsed =
+            parse_stylesheet(css, "https://example.com/css/", ScanSource::StaticCss).unwrap();
+        assert_eq!(parsed.fonts.len(), 1);
+        let urls: Vec<_> = parsed.fonts[0].sources.iter().map(|s| &s.url).collect();
+        assert_eq!(urls, vec!["https://example.com/css/f.woff2"]);
+    }
+
+    #[test]
+    fn parse_stylesheet_keeps_fallbacks_after_data_urls() {
+        let css = r#"
+            @font-face {
+                /* src: url(commented.woff2); */
+                font-family: Acme;
+                src: URL(data:font/woff2;base64,d09GMgABAAAA) format("woff2"),
+                     Url("/fonts/acme.woff") format("woff");
+                font-weight: 300;
+            }
+        "#;
+        let parsed =
+            parse_stylesheet(css, "https://example.com/page", ScanSource::StaticCss).unwrap();
+        assert_eq!(parsed.fonts.len(), 1);
+        let font = &parsed.fonts[0];
+        assert_eq!(font.weight, "300");
+        assert_eq!(font.sources.len(), 1);
+        assert_eq!(font.sources[0].url, "https://example.com/fonts/acme.woff");
+        assert_eq!(font.sources[0].format, FontFormat::Woff);
+    }
+
+    #[test]
+    fn parse_stylesheet_extracts_import_without_trailing_semicolon() {
+        let css = "@import url('a.css');\n@import \"b.css\"";
+        let parsed =
+            parse_stylesheet(css, "https://example.com/css/", ScanSource::StaticCss).unwrap();
+        assert_eq!(
+            parsed.imports,
+            vec![
+                "https://example.com/css/a.css",
+                "https://example.com/css/b.css"
+            ]
+        );
     }
 
     #[test]

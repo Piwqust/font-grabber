@@ -36,16 +36,28 @@ fn fetch_with_browser(
 ) -> Result<Vec<(FontCandidate, Result<CachedFont, String>)>> {
     emit_log(logger.as_ref(), "Starting browser-backed download session");
     let tab = browser.new_tab().context("Could not open a browser tab")?;
+    chrome::protect_tab(&tab)?;
     tab.navigate_to(page_url)
         .with_context(|| format!("Could not open {page_url}"))?;
     let _ = tab.wait_until_navigated();
 
     let mut results = Vec::with_capacity(fonts.len());
+    let mut total = 0u64;
     for font in fonts {
-        results.push((
-            font.clone(),
-            fetch_one(&tab, font, cache_dir).map_err(|error| error.to_string()),
-        ));
+        if total >= 128 * 1024 * 1024 {
+            results.push((
+                font.clone(),
+                Err("Browser downloads exceed 128 MiB. Choose fewer files.".into()),
+            ));
+            continue;
+        }
+        let result = fetch_one(&tab, font, cache_dir).map_err(|error| error.to_string());
+        if let Ok(cached) = &result {
+            total += std::fs::metadata(&cached.cached_path)
+                .map(|m| m.len())
+                .unwrap_or_default();
+        }
+        results.push((font.clone(), result));
     }
     Ok(results)
 }
@@ -61,10 +73,22 @@ fn fetch_one(
         let url_js = serde_json::to_string(&source.url)?;
         let script = format!(
             r#"
-            fetch({url_js}, {{ credentials: 'include' }})
+            fetch({url_js}, {{ credentials: 'include', signal: AbortSignal.timeout(30000) }})
               .then(async (response) => {{
                 if (!response.ok) throw new Error('HTTP ' + response.status);
-                const bytes = new Uint8Array(await response.arrayBuffer());
+                const reader = response.body.getReader();
+                const chunks = [];
+                let total = 0;
+                for (;;) {{
+                  const {{value, done}} = await reader.read();
+                  if (done) break;
+                  total += value.length;
+                  if (total > 64 * 1024 * 1024) {{ await reader.cancel(); throw new Error('Font exceeds 64 MiB'); }}
+                  chunks.push(value);
+                }}
+                const bytes = new Uint8Array(total);
+                let offset = 0;
+                for (const chunk of chunks) {{ bytes.set(chunk, offset); offset += chunk.length; }}
                 let binary = '';
                 const chunk = 8192;
                 for (let i = 0; i < bytes.length; i += chunk) {{
@@ -106,7 +130,7 @@ fn fetch_one(
                     transfer_method: TransferMethod::Browser,
                 });
             }
-            Err(error) => last_error = Some(error.into()),
+            Err(error) => last_error = Some(error),
         }
     }
 

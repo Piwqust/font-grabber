@@ -14,6 +14,7 @@ pub async fn validate_public_url(raw: &str) -> Result<Url> {
 }
 
 pub async fn validate_public_target(url: &Url) -> Result<()> {
+    validate_url_shape(url)?;
     if !matches!(url.scheme(), "http" | "https") {
         bail!("Only http:// and https:// URLs are supported");
     }
@@ -64,7 +65,7 @@ pub async fn validate_public_target(url: &Url) -> Result<()> {
     Ok(())
 }
 
-fn is_blocked_ip(address: IpAddr) -> bool {
+pub(crate) fn is_blocked_ip(address: IpAddr) -> bool {
     match address {
         IpAddr::V4(address) => is_blocked_ipv4(address),
         IpAddr::V6(address) => is_blocked_ipv6(address),
@@ -103,11 +104,41 @@ fn is_blocked_ipv6(address: Ipv6Addr) -> bool {
     }
 
     address.is_unspecified()
+        || (segments[0] & 0xe000) != 0x2000
         || address.is_loopback()
         || address.is_multicast()
         || (segments[0] & 0xfe00) == 0xfc00
         || (segments[0] & 0xffc0) == 0xfe80
         || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+}
+
+pub(crate) fn validate_url_shape(url: &Url) -> Result<()> {
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        bail!("Only public HTTP/HTTPS URLs without credentials are supported");
+    }
+    match url.host().ok_or_else(|| anyhow!("URL has no hostname"))? {
+        Host::Ipv4(ip) if is_blocked_ip(ip.into()) => {
+            bail!("Private network addresses are blocked")
+        }
+        Host::Ipv6(ip) if is_blocked_ip(ip.into()) => {
+            bail!("Private network addresses are blocked")
+        }
+        Host::Domain(name) => {
+            let name = name.trim_end_matches('.').to_ascii_lowercase();
+            if name == "localhost"
+                || name.ends_with(".localhost")
+                || name == "local"
+                || name.ends_with(".local")
+            {
+                bail!("Local hostnames are blocked");
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 #[cfg(test)]

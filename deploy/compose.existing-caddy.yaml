@@ -1,0 +1,46 @@
+name: fount
+services:
+  app:
+    image: fount:${FOUNT_VERSION:?Set an explicit release version}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    command: ["serve", "--host", "0.0.0.0", "--port", "8787", "--no-open", "--hosted", "--concurrency", "1", "--public-origin", "https://${FOUNT_DOMAIN:?Set FOUNT_DOMAIN}", "--trusted-proxy", "172.30.87.1"]
+    expose: ["8787"]
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=536870912,mode=1777
+    shm_size: 128mb
+    mem_limit: 900m
+    memswap_limit: 1100m
+    cpus: 0.70
+    pids_limit: 192
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: 1
+    restart: "on-failure:5"
+    stop_grace_period: 30s
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    secrets: [fount_password_hash]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "3", "http://127.0.0.1:8787/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      private:
+        ipv4_address: 172.30.87.2
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "3"}
+networks:
+  private:
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: 172.30.87.0/29
+secrets:
+  fount_password_hash:
+    file: ${FOUNT_PASSWORD_HASH_FILE:-/etc/fount/password.hash}

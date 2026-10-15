@@ -53,6 +53,7 @@ const STYLES = [
       "core/src/web/styles/base.css",
       "core/src/web/styles/components.css",
       "core/src/web/styles/site.css",
+      "core/src/web/styles/auth.css",
     ],
   },
   {

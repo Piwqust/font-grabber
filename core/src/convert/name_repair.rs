@@ -267,7 +267,7 @@ fn normalize_user_name(value: &str) -> String {
 fn read_name_values(name_table: &[u8]) -> Result<BTreeMap<u16, String>> {
     let count = read_u16(name_table, 2)? as usize;
     let str_offset = read_u16(name_table, 4)? as usize;
-    let mut values = BTreeMap::new();
+    let mut values: BTreeMap<u16, (u8, String)> = BTreeMap::new();
 
     for index in 0..count {
         let offset = 6 + index * 12;
@@ -275,6 +275,8 @@ fn read_name_values(name_table: &[u8]) -> Result<BTreeMap<u16, String>> {
             break;
         }
         let platform_id = read_u16(name_table, offset)?;
+        let encoding_id = read_u16(name_table, offset + 2)?;
+        let language_id = read_u16(name_table, offset + 4)?;
         let name_id = read_u16(name_table, offset + 6)?;
         if name_id > 17 {
             continue;
@@ -291,13 +293,29 @@ fn read_name_values(name_table: &[u8]) -> Result<BTreeMap<u16, String>> {
             continue;
         }
 
-        // Prefer a Windows Unicode record over a Macintosh/legacy record.
-        if platform_id == 3 || !values.contains_key(&name_id) {
-            values.insert(name_id, value);
+        let rank = name_record_rank(platform_id, encoding_id, language_id);
+        if values.get(&name_id).is_none_or(|(best, _)| rank < *best) {
+            values.insert(name_id, (rank, value));
         }
     }
 
-    Ok(values)
+    Ok(values
+        .into_iter()
+        .map(|(name_id, (_, value))| (name_id, value))
+        .collect())
+}
+
+/// Lower is better. Record order is arbitrary, so without an explicit rank a
+/// fr-FR or zh-CN record sorted after en-US would win.
+pub(super) fn name_record_rank(platform_id: u16, encoding_id: u16, language_id: u16) -> u8 {
+    match (platform_id, encoding_id, language_id) {
+        (3, 1, 0x0409) => 0,
+        (3, _, 0x0409) => 1,
+        (3, _, _) => 2,
+        (1, 0, 0) => 3,
+        (0, _, _) => 4,
+        _ => 5,
+    }
 }
 
 fn has_valid_windows_name(name_table: &[u8], expected_name_id: u16) -> bool {
@@ -343,11 +361,14 @@ fn has_valid_windows_name(name_table: &[u8], expected_name_id: u16) -> bool {
     false
 }
 
-fn preferred_existing_name(existing: &BTreeMap<u16, String>, name_ids: &[u16]) -> Option<String> {
+pub(super) fn preferred_existing_name(
+    existing: &BTreeMap<u16, String>,
+    name_ids: &[u16],
+) -> Option<String> {
     name_ids
         .iter()
-        .find_map(|name_id| existing.get(name_id))
-        .filter(|value| is_valid_font_name(value))
+        .filter_map(|name_id| existing.get(name_id))
+        .find(|value| is_valid_font_name(value))
         .cloned()
 }
 
@@ -360,26 +381,43 @@ fn compose_full_name(family: &str, subfamily: &str) -> String {
 }
 
 fn compose_post_script_name(family: &str, subfamily: &str) -> String {
-    let family = post_script_component(family);
-    let subfamily = post_script_component(subfamily);
+    let mut family = post_script_component_or_hash(family, "Font");
+    if family.is_empty() {
+        family = "Font".to_string();
+    }
+    let subfamily = post_script_component_or_hash(subfamily, "Style");
     let mut value = if subfamily.is_empty() {
         family
     } else {
         format!("{family}-{subfamily}")
     };
     value.truncate(63);
-    if value.is_empty() {
-        "Font-Regular".to_string()
-    } else {
-        value
+    value.trim_end_matches('-').to_string()
+}
+
+/// Non-Latin names have no ASCII component; a hash keeps the PostScript name
+/// stable and distinct per family instead of collapsing every one to "-Regular".
+fn post_script_component_or_hash(value: &str, prefix: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    let component = post_script_component(value);
+    if !component.is_empty() || value.trim().is_empty() {
+        return component;
     }
+    let digest = Sha256::digest(value.trim().as_bytes());
+    format!(
+        "{prefix}{:02x}{:02x}{:02x}{:02x}",
+        digest[0], digest[1], digest[2], digest[3]
+    )
 }
 
 fn post_script_component(value: &str) -> String {
     value
         .chars()
         .filter(|character| character.is_ascii_alphanumeric() || *character == '-')
-        .collect()
+        .collect::<String>()
+        .trim_start_matches('-')
+        .to_string()
 }
 
 fn parse_tables(sfnt_data: &[u8]) -> Result<Vec<TableEntry>> {
@@ -421,6 +459,7 @@ fn patch_name_table(name_table: &[u8], replacements: &BTreeMap<u16, String>) -> 
 
     let prefix = name_table[records_end..str_offset].to_vec();
     let mut entries = Vec::with_capacity(count + REQUIRED_WINDOWS_NAME_IDS.len());
+    let mut has_mac_records = false;
 
     for index in 0..count {
         let offset = 6 + index * 12;
@@ -435,24 +474,38 @@ fn patch_name_table(name_table: &[u8], replacements: &BTreeMap<u16, String>) -> 
         let raw = name_table
             .get(str_offset + string_offset..str_offset + string_offset + length)
             .unwrap_or_default();
+        has_mac_records |= record.platform_id == 1;
         match replacements.get(&record.name_id) {
             Some(value) if value.is_empty() => continue,
-            Some(value) => entries.push((record, encode_name_str(value, record.platform_id))),
+            Some(value) => {
+                // An unencodable Mac record is dropped; the Windows record carries the name.
+                if let Some(encoded) = encode_name_str(value, record.platform_id) {
+                    entries.push((record, encoded));
+                }
+            }
             None => entries.push((record, raw.to_vec())),
         }
     }
 
+    // Windows-only fonts stay Windows-only: modern macOS reads platform 3 records.
+    let mut added_platforms = vec![(3, 1, 0x0409)];
+    if has_mac_records {
+        added_platforms.push((1, 0, 0));
+    }
     for (&name_id, value) in replacements {
         if value.is_empty() {
             continue;
         }
-        for (platform_id, encoding_id, language_id) in [(3, 1, 0x0409), (1, 0, 0)] {
-            if !entries.iter().any(|(r, _)| {
+        for &(platform_id, encoding_id, language_id) in &added_platforms {
+            if entries.iter().any(|(r, _)| {
                 r.platform_id == platform_id
                     && r.encoding_id == encoding_id
                     && r.language_id == language_id
                     && r.name_id == name_id
             }) {
+                continue;
+            }
+            if let Some(encoded) = encode_name_str(value, platform_id) {
                 entries.push((
                     NameRecord {
                         platform_id,
@@ -460,7 +513,7 @@ fn patch_name_table(name_table: &[u8], replacements: &BTreeMap<u16, String>) -> 
                         language_id,
                         name_id,
                     },
-                    encode_name_str(value, platform_id),
+                    encoded,
                 ));
             }
         }
@@ -682,24 +735,27 @@ fn decode_name_str(bytes: &[u8], platform_id: u16) -> String {
     }
 }
 
-fn encode_name_str(value: &str, platform_id: u16) -> Vec<u8> {
+/// `None` when a Mac Roman record cannot represent the value; writing `?`
+/// placeholders would corrupt the name that macOS shows.
+fn encode_name_str(value: &str, platform_id: u16) -> Option<Vec<u8>> {
     if matches!(platform_id, 0 | 3) {
-        value
-            .encode_utf16()
-            .flat_map(|word| word.to_be_bytes())
-            .collect()
+        Some(
+            value
+                .encode_utf16()
+                .flat_map(|word| word.to_be_bytes())
+                .collect(),
+        )
     } else {
         value
             .chars()
             .map(|ch| {
                 if ch.is_ascii() {
-                    ch as u8
+                    Some(ch as u8)
                 } else {
                     MAC_ROMAN
                         .chars()
                         .position(|candidate| candidate == ch)
                         .map(|i| i as u8 + 128)
-                        .unwrap_or(b'?')
                 }
             })
             .collect()
@@ -808,7 +864,7 @@ mod tests {
             })
             .collect();
         assert!(records.windows(2).all(|w| w[0] <= w[1]));
-        assert!(records.contains(&(1, 0, 0, 9)));
+        assert!(records.iter().all(|r| r.0 != 1));
         assert!(records.contains(&(3, 1, 0x409, 9)));
         assert!(records.iter().all(|r| ![0, 13].contains(&r.3)));
         let removed = patch_name_table(&patched, &BTreeMap::from([(8, String::new())])).unwrap();
@@ -824,7 +880,7 @@ mod tests {
         let mut table = original[..storage].to_vec();
         table.extend_from_slice(&[0, 1, 0, 4, 0, 16]);
         table.extend_from_slice(&original[storage..]);
-        table.extend_from_slice(&encode_name_str("en", 3));
+        table.extend_from_slice(&encode_name_str("en", 3).unwrap());
         write_u16(&mut table, 0, 1).unwrap();
         write_u16(&mut table, 4, (storage + 6) as u16).unwrap();
         let result = patch_name_table(&table, &BTreeMap::from([(1, "New family".into())])).unwrap();
@@ -890,23 +946,34 @@ mod tests {
     }
 
     fn windows_name_table(values: &[(u16, &str)]) -> Vec<u8> {
-        let records_end = 6 + values.len() * 12;
-        let encoded = values
+        let records = values
             .iter()
-            .map(|(_, value)| encode_name_str(value, 3))
+            .map(|&(name_id, value)| (3, 1, 0x0409, name_id, value))
+            .collect::<Vec<_>>();
+        name_table(&records)
+    }
+
+    /// Records are (platform, encoding, language, name ID, value).
+    fn name_table(records: &[(u16, u16, u16, u16, &str)]) -> Vec<u8> {
+        let records_end = 6 + records.len() * 12;
+        let encoded = records
+            .iter()
+            .map(|&(platform_id, _, _, _, value)| encode_name_str(value, platform_id).unwrap())
             .collect::<Vec<_>>();
         let total_length = records_end + encoded.iter().map(Vec::len).sum::<usize>();
         let mut table = vec![0u8; total_length];
         write_u16(&mut table, 0, 0).unwrap();
-        write_u16(&mut table, 2, values.len() as u16).unwrap();
+        write_u16(&mut table, 2, records.len() as u16).unwrap();
         write_u16(&mut table, 4, records_end as u16).unwrap();
         let mut cursor = 0usize;
-        for (index, ((name_id, _), value)) in values.iter().zip(&encoded).enumerate() {
+        for (index, (&(platform_id, encoding_id, language_id, name_id, _), value)) in
+            records.iter().zip(&encoded).enumerate()
+        {
             let offset = 6 + index * 12;
-            write_u16(&mut table, offset, 3).unwrap();
-            write_u16(&mut table, offset + 2, 1).unwrap();
-            write_u16(&mut table, offset + 4, 0x0409).unwrap();
-            write_u16(&mut table, offset + 6, *name_id).unwrap();
+            write_u16(&mut table, offset, platform_id).unwrap();
+            write_u16(&mut table, offset + 2, encoding_id).unwrap();
+            write_u16(&mut table, offset + 4, language_id).unwrap();
+            write_u16(&mut table, offset + 6, name_id).unwrap();
             write_u16(&mut table, offset + 8, value.len() as u16).unwrap();
             write_u16(&mut table, offset + 10, cursor as u16).unwrap();
             cursor += value.len();
@@ -932,12 +999,13 @@ mod tests {
 
     #[test]
     fn utf16_roundtrip_preserves_strings() {
-        let encoded = encode_name_str("Acme Sans", 3);
+        let encoded = encode_name_str("Acme Sans", 3).unwrap();
         let decoded = decode_name_str(&encoded, 3);
         assert_eq!(decoded, "Acme Sans");
         assert_eq!(MAC_ROMAN.chars().count(), 128);
         let mac = "Caf\u{e9} \u{a9}";
-        assert_eq!(decode_name_str(&encode_name_str(mac, 1), 1), mac);
+        assert_eq!(decode_name_str(&encode_name_str(mac, 1).unwrap(), 1), mac);
+        assert!(encode_name_str("Гарнитура", 1).is_none());
     }
 
     #[test]
@@ -973,7 +1041,7 @@ mod tests {
         let patched = patch_name_table(&table, &replacements).unwrap();
         let names = read_name_values(&patched).unwrap();
 
-        assert_eq!(read_u16(&patched, 2).unwrap(), 12);
+        assert_eq!(read_u16(&patched, 2).unwrap(), 6);
         assert_eq!(names.get(&1).unwrap(), "Graphik Web");
         assert_eq!(names.get(&2).unwrap(), "Regular");
         assert_eq!(names.get(&3).unwrap(), "1.000;Fount;GraphikWeb-Regular");
@@ -1055,5 +1123,80 @@ mod tests {
         let names = read_name_values(name_data).unwrap();
         assert_eq!(names.get(&1).unwrap(), "Гарнитура");
         assert_eq!(names.get(&16).unwrap(), "Гарнитура");
+    }
+
+    #[test]
+    fn read_name_values_prefers_english_windows_record() {
+        let table = name_table(&[
+            (0, 3, 0, 1, "Unicode"),
+            (1, 0, 0, 1, "Mac"),
+            (3, 1, 0x0409, 1, "Acme"),
+            (3, 1, 0x040C, 1, "Acme FR"),
+            (3, 1, 0x0804, 1, "Acme ZH"),
+            (1, 0, 0, 2, "Mac Bold"),
+            (0, 3, 0, 2, "Unicode Bold"),
+            (3, 1, 0x040C, 4, "Acme Gras"),
+            (1, 0, 0, 4, "Acme Bold"),
+        ]);
+        let names = read_name_values(&table).unwrap();
+        assert_eq!(names[&1], "Acme");
+        assert_eq!(names[&2], "Mac Bold");
+        assert_eq!(names[&4], "Acme Gras");
+    }
+
+    #[test]
+    fn mac_records_are_only_written_when_representable_and_already_present() {
+        let table = name_table(&[
+            (1, 0, 0, 1, "Old"),
+            (3, 1, 0x0409, 1, "Old"),
+            (3, 1, 0x0409, 2, "Regular"),
+        ]);
+        let patched = patch_name_table(
+            &table,
+            &BTreeMap::from([(1, "Гарнитура".into()), (4, "Caf\u{e9} Bold".into())]),
+        )
+        .unwrap();
+        let records: Vec<_> = (0..read_u16(&patched, 2).unwrap() as usize)
+            .map(|i| {
+                let off = 6 + i * 12;
+                (
+                    read_u16(&patched, off).unwrap(),
+                    read_u16(&patched, off + 6).unwrap(),
+                )
+            })
+            .collect();
+        assert!(!records.contains(&(1, 1)));
+        assert!(records.contains(&(3, 1)));
+        assert!(records.contains(&(1, 4)));
+        assert!(records.contains(&(3, 4)));
+        let names = read_name_values(&patched).unwrap();
+        assert_eq!(names[&1], "Гарнитура");
+        assert_eq!(names[&4], "Caf\u{e9} Bold");
+    }
+
+    #[test]
+    fn post_script_name_hashes_non_ascii_family() {
+        let cyrillic = compose_post_script_name("Гарнитура", "Regular");
+        assert!(cyrillic.starts_with("Font"), "{cyrillic}");
+        assert!(cyrillic.ends_with("-Regular"), "{cyrillic}");
+        assert_eq!(cyrillic.len(), "Font".len() + 8 + "-Regular".len());
+        assert_eq!(cyrillic, compose_post_script_name("Гарнитура", "Regular"));
+        assert_ne!(cyrillic, compose_post_script_name("Шрифт", "Regular"));
+        assert_eq!(compose_post_script_name("-Acme", "Bold"), "Acme-Bold");
+        let long = compose_post_script_name(&"A".repeat(80), "Bold");
+        assert_eq!(long.len(), 63);
+        assert!(long
+            .bytes()
+            .all(|b| (33..=126).contains(&b) && !b"[](){}<>/%".contains(&b)));
+    }
+
+    #[test]
+    fn preferred_existing_name_skips_invalid_values() {
+        let existing = BTreeMap::from([(16, "---".to_string()), (1, "Acme".to_string())]);
+        assert_eq!(
+            preferred_existing_name(&existing, &[16, 1]).as_deref(),
+            Some("Acme")
+        );
+        assert_eq!(preferred_existing_name(&existing, &[17, 2]), None);
     }
 }

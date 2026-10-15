@@ -16,7 +16,7 @@ export function ExportSettings({ busy = false }) {
     <Popover
       title="Export settings"
       trigger={
-        <Button size="s" variant="quiet" icon="sliders" disabled={busy}>
+        <Button size="s" variant="quiet" icon="sliders" disabled={busy} class="export-settings-trigger" aria-label="Export settings">
           Export settings
         </Button>
       }

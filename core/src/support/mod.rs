@@ -65,7 +65,7 @@ pub fn sanitize_family_dir(value: &str) -> String {
     for ch in value.chars() {
         let mapped = match ch {
             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
-            c if c.is_whitespace() => '_',
+            c if c.is_whitespace() || c.is_control() => '_',
             c => c,
         };
 
@@ -80,7 +80,24 @@ pub fn sanitize_family_dir(value: &str) -> String {
         }
     }
 
-    cleaned.trim_matches('_').to_string()
+    // Windows silently strips trailing dots, so "Font." and "Font" would collide.
+    let trimmed = cleaned.trim_start_matches('_').trim_end_matches(['_', '.']);
+    avoid_reserved_device_name(trimmed)
+}
+
+/// `CON`, `NUL.ttf`, `com1.otf` and friends open a device on Windows instead of a file.
+fn avoid_reserved_device_name(value: &str) -> String {
+    let stem_end = value.find('.').unwrap_or(value.len());
+    let stem = value[..stem_end].to_ascii_uppercase();
+    let reserved = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'));
+    if reserved {
+        format!("{}_{}", &value[..stem_end], &value[stem_end..])
+    } else {
+        value.to_string()
+    }
 }
 
 pub fn sanitize_file_stem(value: &str) -> String {
@@ -199,6 +216,20 @@ mod tests {
         assert_eq!(sanitize_family_dir(" ACME / Fonts  "), "ACME_Fonts");
         assert_eq!(sanitize_file_stem(" ACME / Fonts  "), "ACME-Fonts");
         assert_eq!(sanitize_file_stem("***"), "font");
+    }
+
+    #[test]
+    fn sanitizers_produce_windows_safe_names() {
+        assert_eq!(sanitize_family_dir("Ac\0me\u{1b}Sans"), "Ac_me_Sans");
+        assert_eq!(sanitize_family_dir("Acme. . "), "Acme");
+        assert_eq!(sanitize_family_dir(".."), "");
+        assert_eq!(sanitize_file_stem(".."), "font");
+        assert_eq!(sanitize_family_dir("con"), "con_");
+        assert_eq!(sanitize_family_dir("NUL.ttf"), "NUL_.ttf");
+        assert_eq!(sanitize_family_dir("Lpt9.a.b"), "Lpt9_.a.b");
+        assert_eq!(sanitize_file_stem("COM1"), "COM1-");
+        assert_eq!(sanitize_family_dir("COM0"), "COM0");
+        assert_eq!(sanitize_family_dir("Console"), "Console");
     }
 
     #[test]

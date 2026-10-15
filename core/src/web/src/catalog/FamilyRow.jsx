@@ -1,5 +1,5 @@
 import { useStore } from "../store.jsx";
-import { familyKey } from "../lib/fonts.js";
+import { faceStyle, faceWeight, familyKey } from "../lib/fonts.js";
 import { Button } from "../ui/Button.jsx";
 import { Checkbox } from "../ui/Checkbox.jsx";
 import { Icon } from "../ui/Icon.jsx";
@@ -30,7 +30,7 @@ export function FamilyRow({ group }) {
 
   const representative =
     group.fonts.find(
-      (font) => font.weight === "400" && font.style === "normal",
+      (font) => faceWeight(font) === 400 && faceStyle(font) === "normal",
     ) || group.fonts[0];
 
   const deliveryVerb = store.delivery === "folder" ? "Save" : "Download";
@@ -66,6 +66,7 @@ export function FamilyRow({ group }) {
               : ""}
             {selectedCount ? ` · ${selectedCount} selected` : ""}
           </span>
+          {group.onPage ? <span class="family-badge">On this page</span> : null}
         </button>
 
         <Button

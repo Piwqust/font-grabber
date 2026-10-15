@@ -1,0 +1,7 @@
+[Unit]
+Description=Re-apply Fount egress rules if a firewall reload removed them
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/fount/deploy/egress.sh ensure

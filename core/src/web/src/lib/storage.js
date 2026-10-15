@@ -1,9 +1,10 @@
 // Storage is best-effort: private windows and locked-down browsers throw on
 // access, and the app has to stay usable when it does.
+import { HOSTED } from "./auth.js";
 
 export function readLocal(key, fallback) {
   try {
-    return localStorage.getItem(key) ?? fallback;
+    return (HOSTED && key === HISTORY_KEY ? sessionStorage : localStorage).getItem(key) ?? fallback;
   } catch {
     return fallback;
   }
@@ -11,7 +12,7 @@ export function readLocal(key, fallback) {
 
 export function writeLocal(key, value) {
   try {
-    localStorage.setItem(key, value);
+    (HOSTED && key === HISTORY_KEY ? sessionStorage : localStorage).setItem(key, value);
     return true;
   } catch {
     return false;
@@ -162,6 +163,13 @@ export function loadSession() {
    reloaded as fallbacks after a reload. */
 
 const METADATA_KEY = "fount-metadata-v1";
+
+export function clearPrivateSession() {
+  for (const key of [SESSION_KEY, METADATA_KEY, HISTORY_KEY]) {
+    try { sessionStorage.removeItem(key); } catch {}
+  }
+  try { localStorage.removeItem(HISTORY_KEY); } catch {}
+}
 
 export function saveMetadataSession(draft) {
   try {

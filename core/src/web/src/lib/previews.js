@@ -6,11 +6,16 @@
 // keep answering for ids that have been reused.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { fontProxyUrl } from "./api.js";
-import { cssId, formatHint } from "./fonts.js";
+import { cssId } from "./fonts.js";
+import { apiFetch } from "./auth.js";
 
 const status = new Map(); // id -> "loading" | "ready" | "failed"
 const faces = new Map(); // id -> FontFace
 const listeners = new Map(); // id -> Set<listener>
+const previewQueue = [];
+const controllers = new Map();
+const MAX_ACTIVE_PREVIEWS = 2;
+let activePreviews = 0;
 let generation = 0;
 
 // Listeners are keyed by face id so a file arriving only re-renders the
@@ -37,6 +42,9 @@ function subscribe(id, listener) {
 /** Drops every registered face. Called when a scan replaces the collection. */
 export function resetPreviews() {
   generation++;
+  previewQueue.length = 0;
+  for (const controller of controllers.values()) controller.abort();
+  controllers.clear();
   for (const face of faces.values()) {
     try {
       document.fonts.delete(face);
@@ -55,6 +63,10 @@ export function previewFamily(id) {
 
 /** Drops one face, for a preview whose file is about to go away. */
 export function dropPreview(id) {
+  controllers.get(id)?.abort();
+  controllers.delete(id);
+  for (let i = previewQueue.length - 1; i >= 0; i--)
+    if (previewQueue[i].id === id) previewQueue.splice(i, 1);
   const face = faces.get(id);
   if (face) {
     try {
@@ -68,31 +80,74 @@ export function dropPreview(id) {
   emit(id);
 }
 
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
 async function load(font) {
-  if (status.has(font.id)) return;
   const mine = generation;
-  status.set(font.id, "loading");
-  emit(font.id);
+  const controller = new AbortController();
+  controllers.set(font.id, controller);
+  const stale = () => mine !== generation || controller.signal.aborted;
   try {
-    const source = font.sources?.[0];
-    if (!source) throw new Error("No source file for this face");
-    // A file chosen on this computer is already local: it is read from its
-    // object URL, not through the proxy the server uses for remote files.
-    const href = source.local ? source.url : fontProxyUrl(source.url);
-    const face = new FontFace(
-      previewFamily(font.id),
-      `url("${href}")${formatHint(source)}`,
-    );
-    await face.load();
-    if (mine !== generation) return;
-    document.fonts.add(face);
-    faces.set(font.id, face);
-    status.set(font.id, "ready");
+    const sources = font.sources?.filter(Boolean) || [];
+    if (!sources.length) throw new Error("No source file for this face");
+    let lastError;
+    for (const source of sources) {
+      // A file chosen on this computer is already local: it is read from its
+      // object URL, not through the proxy the server uses for remote files.
+      const href = source.local ? source.url : fontProxyUrl(source.url);
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          if (stale()) return;
+          const response = await apiFetch(href, { signal: controller.signal });
+          if (!response.ok) throw new Error("Preview unavailable (" + response.status + ")");
+          const face = new FontFace(previewFamily(font.id), await response.arrayBuffer());
+          await face.load();
+          if (stale()) return;
+          document.fonts.add(face);
+          faces.set(font.id, face);
+          status.set(font.id, "ready");
+          emit(font.id);
+          return;
+        } catch (error) {
+          if (stale()) return;
+          lastError = error;
+          if (attempt === 0) await wait(350);
+        }
+      }
+    }
+    throw lastError || new Error("Preview unavailable");
   } catch {
-    if (mine !== generation) return;
+    if (stale()) return;
     status.set(font.id, "failed");
+  } finally {
+    if (controllers.get(font.id) === controller) controllers.delete(font.id);
   }
   emit(font.id);
+}
+
+function drainPreviewQueue() {
+  while (activePreviews < MAX_ACTIVE_PREVIEWS && previewQueue.length) {
+    const font = previewQueue.shift();
+    // Several previews can share a face. Follow subscribers, not the first
+    // DOM node, which a search may replace while another still needs the font.
+    if (!listeners.has(font.id)) {
+      status.delete(font.id);
+      continue;
+    }
+    activePreviews += 1;
+    load(font).finally(() => {
+      activePreviews -= 1;
+      drainPreviewQueue();
+    });
+  }
+}
+
+function enqueuePreview(font) {
+  if (!font || status.has(font.id)) return;
+  status.set(font.id, "loading");
+  emit(font.id);
+  previewQueue.push(font);
+  drainPreviewQueue();
 }
 
 // A single observer for every preview on the page; 300px of margin means the
@@ -105,7 +160,7 @@ const observer =
             if (!entry.isIntersecting) continue;
             observer.unobserve(entry.target);
             const font = pending.get(entry.target);
-            if (font) load(font);
+            if (font) enqueuePreview(font);
           }
         },
         { rootMargin: "300px 0px" },
@@ -123,25 +178,36 @@ export function usePreview(font) {
   const [state, setState] = useState(() =>
     font ? status.get(font.id) || "loading" : "loading",
   );
+  // A reset empties the queue and the node was unobserved when it first came
+  // into view, so a new scan of the same site must observe it again.
+  const [epoch, setEpoch] = useState(generation);
 
   useEffect(() => {
     if (!font) return;
-    setState(status.get(font.id) || "loading");
-    return subscribe(font.id, () => setState(status.get(font.id) || "loading"));
+    const sync = () => {
+      setState(status.get(font.id) || "loading");
+      setEpoch(generation);
+    };
+    sync();
+    return subscribe(font.id, sync);
   }, [font?.id]);
 
   useEffect(() => {
     const node = ref.current;
-    if (!node || !font || !observer) return;
+    if (!node || !font) return;
     if (status.get(font.id) === "ready" || status.get(font.id) === "failed")
       return;
+    if (!observer) {
+      enqueuePreview(font);
+      return;
+    }
     pending.set(node, font);
     observer.observe(node);
     return () => {
       observer.unobserve(node);
       pending.delete(node);
     };
-  }, [font?.id]);
+  }, [font?.id, epoch]);
 
   return { ref, state };
 }

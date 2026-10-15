@@ -24,6 +24,9 @@ function key(tabId) {
 // a single promise chain; the memory mirror is rebuilt from storage after a
 // service-worker restart.
 const cache = new Map(); // tabId -> [{ url, contentType }]
+// Bumped on navigation. A write queued for the previous page sees a stale
+// generation and is dropped, instead of re-reading the old list from storage.
+const generations = new Map(); // tabId -> number
 let writeChain = Promise.resolve();
 
 async function listFor(tabId) {
@@ -38,8 +41,10 @@ async function listFor(tabId) {
 }
 
 function recordFont(tabId, url, contentType) {
+  const generation = generations.get(tabId) || 0;
   writeChain = writeChain
     .then(async () => {
+      if ((generations.get(tabId) || 0) !== generation) return;
       const list = await listFor(tabId);
       if (list.some((f) => f.url === url)) return;
       list.push({ url, contentType: contentType || "" });
@@ -51,9 +56,20 @@ function recordFont(tabId, url, contentType) {
   return writeChain;
 }
 
-function forget(tabId) {
-  cache.delete(tabId);
-  writeChain = writeChain.then(() => chrome.storage.session.remove(key(tabId))).catch(() => {});
+function forget(tabId, { closed = false } = {}) {
+  generations.set(tabId, (generations.get(tabId) || 0) + 1);
+  // An empty list, not a deletion: deleting would make the next write reload
+  // the old page's list from storage before the removal below has run.
+  cache.set(tabId, []);
+  writeChain = writeChain
+    .then(() => chrome.storage.session.remove(key(tabId)))
+    .then(() => {
+      if (closed) {
+        cache.delete(tabId);
+        generations.delete(tabId);
+      }
+    })
+    .catch(() => {});
 }
 
 chrome.webRequest.onHeadersReceived.addListener(
@@ -75,8 +91,13 @@ chrome.webRequest.onHeadersReceived.addListener(
   ["responseHeaders"]
 );
 
-// Reset a tab's list when it starts loading a new page.
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status === "loading" && changeInfo.url) forget(tabId);
-});
-chrome.tabs.onRemoved.addListener((tabId) => forget(tabId));
+// Reset a tab's list when its top-level document is requested. This also covers
+// reloads (tabs.onUpdated carries no url then) and always precedes the new
+// page's own font requests.
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    if (details.tabId >= 0) forget(details.tabId);
+  },
+  { urls: ["<all_urls>"], types: ["main_frame"] }
+);
+chrome.tabs.onRemoved.addListener((tabId) => forget(tabId, { closed: true }));

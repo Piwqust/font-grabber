@@ -264,7 +264,11 @@ async function fetchBytesInPage(font) {
       // which browsers reject when credentials are attached.
       const response = await fetch(url, { credentials: "same-origin" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      // Runs in the page, so the popup-side helper is out of scope here.
+      if (Number(response.headers.get("content-length")) > 20 * 1024 * 1024)
+        throw new Error("File is larger than 20 MB");
       const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.length > 20 * 1024 * 1024) throw new Error("File is larger than 20 MB");
       let binary = "";
       const chunk = 0x8000;
       for (let offset = 0; offset < bytes.length; offset += chunk)
@@ -288,6 +292,36 @@ function decodeBase64(value) {
   return bytes;
 }
 
+// Matches the server's per-file limit. Extensionless octet-stream responses can
+// be video segments or other blobs; never buffer those whole in the popup.
+const MAX_FONT_BYTES = 20 * 1024 * 1024;
+
+async function readLimited(response) {
+  const declared = Number(response.headers.get("content-length"));
+  if (declared > MAX_FONT_BYTES) throw new Error("File is larger than 20 MB");
+  if (!response.body) return new Uint8Array(await response.arrayBuffer());
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_FONT_BYTES) {
+      reader.cancel().catch(() => {});
+      throw new Error("File is larger than 20 MB");
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 async function readBytes(font) {
   const mine = cacheGeneration;
   const cached = cache.get(font.url);
@@ -301,7 +335,7 @@ async function readBytes(font) {
     try {
       const response = await fetch(font.url);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      bytes = new Uint8Array(await response.arrayBuffer());
+      bytes = await readLimited(response);
     } catch (directError) {
       // Some foundry CDNs reject extension-origin requests because they require
       // the open page as Referer. Fetching from that page's MAIN world makes the

@@ -1,5 +1,5 @@
 import { useStore } from "../store.jsx";
-import { styleLabel } from "../lib/fonts.js";
+import { familyName, styleLabel } from "../lib/fonts.js";
 import { useCountUp } from "../lib/motion.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Icon } from "../ui/Icon.jsx";
@@ -38,7 +38,7 @@ export function SelectionPanel() {
                 <Icon name="file" size={16} />
                 <div class="selection-file-name">
                   <strong>
-                    {font.family || "Unnamed font"} {styleLabel(font)}
+                    {familyName(font)} {styleLabel(font)}
                   </strong>
                   <small>
                     {font.variable ? "Variable" : "Static"} ·{" "}
@@ -49,7 +49,7 @@ export function SelectionPanel() {
                   icon="close"
                   size="s"
                   disabled={store.busy}
-                  label={`Remove ${font.family || "Unnamed font"} ${styleLabel(font)} from selection`}
+                  label={`Remove ${familyName(font)} ${styleLabel(font)} from selection`}
                   onClick={() => store.toggleFace(font.id, false)}
                 />
               </li>
@@ -90,7 +90,7 @@ export function SelectionPanel() {
           busy={store.metadata.inspecting}
           onClick={store.openMetadataFromSelection}
         >
-          Edit metadata
+          Customize font
         </Button>
 
         {store.grabStatus ? (

@@ -9,12 +9,13 @@ import { Extension } from "./sections/Extension.jsx";
 import { Footer } from "./sections/Footer.jsx";
 import { Catalog } from "./catalog/Catalog.jsx";
 import { MetadataEditor } from "./metadata/MetadataEditor.jsx";
+import { AuthGate } from "./auth/AuthGate.jsx";
 
 export function App() {
   return (
-    <StoreProvider>
+    <AuthGate><StoreProvider>
       <Shell />
-    </StoreProvider>
+    </StoreProvider></AuthGate>
   );
 }
 
@@ -23,6 +24,12 @@ function Shell() {
 
   const editing = store.metadata.open;
   const wasEditing = useRef(false);
+
+  useEffect(() => {
+    document.title = editing ? "Customize font — Fount" : "Fount — Find your type";
+    document.documentElement.dataset.editor = String(editing);
+    return () => { delete document.documentElement.dataset.editor; };
+  }, [editing]);
 
   // A finished scan takes over the page. Focus moves with it, or a keyboard
   // user is left at the top of a page whose content has been replaced. Coming
@@ -33,11 +40,11 @@ function Shell() {
       wasEditing.current = true;
       return;
     }
-    if (!store.hasResults) return;
     if (wasEditing.current) {
       wasEditing.current = false;
       return;
     }
+    if (!store.hasResults) return;
     const results = document.getElementById("results");
     results?.focus({ preventScroll: true });
     scrollTo({ top: 0, behavior: "instant" });
@@ -62,7 +69,7 @@ function Shell() {
           <Extension />
         </main>
       )}
-      <Footer />
+      {editing ? null : <Footer />}
     </>
   );
 }

@@ -19,6 +19,9 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
     emit_log(logger.as_ref(), "Fetching page HTML for static discovery");
 
     let client = build_http_client()?;
+    if crate::support::http::hosted() {
+        crate::support::validate_public_url(page_url).await?;
+    }
     let response = client
         .get(page_url)
         .send()
@@ -122,6 +125,12 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
             continue;
         }
 
+        if crate::support::http::hosted() {
+            if let Err(error) = crate::support::validate_public_url(&stylesheet_url).await {
+                warnings.push(format!("Stylesheet blocked: {error}"));
+                continue;
+            }
+        }
         let response = match client.get(&stylesheet_url).send().await {
             Ok(response) => response,
             Err(error) => {

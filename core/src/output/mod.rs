@@ -1,26 +1,65 @@
 use std::{fs, path::Path};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 
 use crate::{
     domain::{ConvertedFont, SavedFont},
     support::{emit_log, sanitize_file_stem, write_unique_file, Logger},
 };
 
+pub struct SaveBatch {
+    pub saved: Vec<SavedFont>,
+    pub failures: Vec<String>,
+    /// (font id, error) for each font that could not be written.
+    pub failure_details: Vec<(String, String)>,
+}
+
+/// Saves what it can and returns an error only when nothing was saved, so a
+/// single-font call keeps its old meaning. Use [`save_converted_fonts_report`]
+/// to see per-file failures of a partially saved batch.
 pub fn save_converted_fonts(
     converted_fonts: &[ConvertedFont],
     output_dir: &Path,
     logger: Option<Logger>,
 ) -> Result<Vec<SavedFont>> {
+    let batch = save_converted_fonts_report(converted_fonts, output_dir, logger)?;
+    if batch.saved.is_empty() {
+        if let Some((_, error)) = batch.failure_details.into_iter().next() {
+            return Err(anyhow!(error));
+        }
+    }
+    Ok(batch.saved)
+}
+
+/// One unwritable file (bad name, permissions) must not discard the rest of the batch.
+pub fn save_converted_fonts_report(
+    converted_fonts: &[ConvertedFont],
+    output_dir: &Path,
+    logger: Option<Logger>,
+) -> Result<SaveBatch> {
     fs::create_dir_all(output_dir)
         .with_context(|| format!("Failed to create output directory {}", output_dir.display()))?;
 
     let mut saved = Vec::new();
+    let mut failures = Vec::new();
+    let mut failure_details = Vec::new();
 
     for font in converted_fonts {
         let filename = build_output_filename(font);
-        let path = write_unique_file(&output_dir.join(filename), &font.data)
-            .context("Failed to write converted font")?;
+        let path = match write_unique_file(&output_dir.join(&filename), &font.data)
+            .with_context(|| format!("Failed to write converted font {filename}"))
+        {
+            Ok(path) => path,
+            Err(error) => {
+                emit_log(logger.as_ref(), format!("{error:#}"));
+                failure_details.push((font.info.id.clone(), format!("{error:#}")));
+                failures.push(format!(
+                    "{} ({} {}): {error:#}",
+                    font.info.family, font.info.weight, font.info.style
+                ));
+                continue;
+            }
+        };
 
         emit_log(logger.as_ref(), format!("Saved {}", path.display()));
 
@@ -41,7 +80,11 @@ pub fn save_converted_fonts(
         });
     }
 
-    Ok(saved)
+    Ok(SaveBatch {
+        saved,
+        failures,
+        failure_details,
+    })
 }
 
 pub(crate) fn build_output_filename(font: &ConvertedFont) -> String {
@@ -162,6 +205,33 @@ mod tests {
             build_output_filename(&font),
             "Acme-Sans-700-italic-Variable.otf"
         );
+    }
+
+    #[test]
+    fn one_unwritable_font_does_not_abort_the_batch() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut bad = converted_font();
+        // No filesystem accepts a 300-character path component.
+        bad.output_stem = Some("A".repeat(300));
+        bad.data = vec![1];
+        let mut good = converted_font();
+        good.data = vec![2];
+
+        let batch =
+            save_converted_fonts_report(&[bad.clone(), good.clone()], directory.path(), None)
+                .unwrap();
+        assert_eq!(batch.saved.len(), 1);
+        assert_eq!(std::fs::read(&batch.saved[0].output_path).unwrap(), vec![2]);
+        assert_eq!(batch.failures.len(), 1);
+        assert_eq!(batch.failure_details[0].0, "id");
+
+        assert_eq!(
+            save_converted_fonts(&[bad.clone(), good], directory.path(), None)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(save_converted_fonts(&[bad], directory.path(), None).is_err());
     }
 
     #[test]

@@ -7,6 +7,9 @@ license = "ISC"
 
 [dependencies]
 anyhow = "1.0"
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
 axum = "0.7"
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
@@ -26,3 +29,12 @@ ttf-parser = "0.25"
 url = "2.5"
 wuff = { version = "0.2.3", features = ["z", "brotli"] }
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+
+# The generated CDP bindings require excessive optimizer memory on small VPSes.
+# Browser/network I/O dominates this adapter; keep font processing optimized.
+[profile.release.package.headless_chrome]
+opt-level = 0
+codegen-units = 256

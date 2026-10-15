@@ -35,7 +35,7 @@
   --gutter: clamp(1.25rem, 5vw, 4.5rem);
   --measure: 74rem;
   --preview-size: 32px;
-  --header-h: 3.75rem;
+  --island-h: 5rem;
 }
 
 /* The dark palette applies in two cases: the system asks for it and nothing
@@ -102,7 +102,7 @@
 }
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: calc(var(--header-h) + 1.5rem);
+  scroll-padding-top: calc(var(--island-h) + 0.5rem);
   -webkit-text-size-adjust: 100%;
 }
 @media (prefers-reduced-motion: reduce) {

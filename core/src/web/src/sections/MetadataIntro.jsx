@@ -21,7 +21,7 @@ export function MetadataIntro() {
   };
 
   return (
-    <div class="metadata-intro" role="group" aria-label="Edit metadata">
+    <div class="metadata-intro" role="group" aria-label="Customize font">
       <div
         class="metadata-drop"
         data-dragging={String(dragging)}
@@ -45,8 +45,7 @@ export function MetadataIntro() {
           {dragging ? "Drop the files to edit them" : "Drop font files here"}
         </span>
         <span class="metadata-drop-note">
-          TTF, OTF, WOFF or WOFF2. Family, style, full and PostScript names,
-          then a file that installs cleanly.
+          TTF, OTF, WOFF or WOFF2. Your original files stay unchanged.
         </span>
 
         <div class="metadata-drop-field">

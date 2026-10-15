@@ -39,7 +39,7 @@ export function useFloating({
       middleware: [
         offset(offsetPx),
         flip({ padding }),
-        shift({ padding }),
+        shift({ padding, crossAxis: true }),
       ],
     }).then(({ x, y }) => {
       floating.style.top = `${y}px`;

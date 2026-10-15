@@ -190,6 +190,15 @@ scripts\build-extension.cmd
 
 More on the engine internals: [core/README.md](core/README.md).
 
+## Private Linux service
+
+The hosted edition uses an in-app password gate, Argon2id secret file, protected
+HTTP-only session cookies and ZIP delivery. It runs behind Caddy; it must not be
+exposed directly. Start with [the deployment runbook](deploy/README.md) and
+[the authentication contract](docs/HOSTED-API.md). `password-hash` creates a secret
+interactively. `node scripts/package-deploy.cjs` packages the reviewed working tree
+without local fonts, secrets or test artifacts. The browser extension stays local.
+
 ## License
 
 [ISC](LICENSE) © Piwqust

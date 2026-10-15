@@ -54,7 +54,7 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
     let log = logger.clone();
 
     // headless_chrome is synchronous; keep it off the async runtime.
-    let raw = tokio::task::spawn_blocking(move || run_browser(&url, log))
+    let (raw, warnings) = tokio::task::spawn_blocking(move || run_browser(&url, log))
         .await
         .context("Headless discovery task panicked")??;
 
@@ -100,11 +100,11 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
 
     Ok(CollectorResult {
         fonts: parser::merge_fonts(Vec::new(), fonts),
-        warnings: Vec::new(),
+        warnings,
     })
 }
 
-fn run_browser(page_url: &str, logger: Option<Logger>) -> Result<Vec<RawCandidate>> {
+fn run_browser(page_url: &str, logger: Option<Logger>) -> Result<(Vec<RawCandidate>, Vec<String>)> {
     chrome::with_browser(|browser| collect_from_browser(browser, page_url, logger.clone()))
 }
 
@@ -112,8 +112,9 @@ fn collect_from_browser(
     browser: &headless_chrome::Browser,
     page_url: &str,
     logger: Option<Logger>,
-) -> Result<Vec<RawCandidate>> {
+) -> Result<(Vec<RawCandidate>, Vec<String>)> {
     let tab = browser.new_tab().context("Could not open a browser tab")?;
+    chrome::protect_tab(&tab)?;
 
     // Install the FontFace/fetch capture hooks before any page script runs.
     let _ = tab.call_method(AddScriptToEvaluateOnNewDocument {
@@ -126,8 +127,30 @@ fn collect_from_browser(
     emit_log(logger.as_ref(), format!("Opening {page_url}"));
     tab.navigate_to(page_url)
         .with_context(|| format!("Could not open {page_url}"))?;
-    tab.wait_until_navigated()
-        .context("Page did not finish loading")?;
+    // A slow image/analytics request must not discard an otherwise usable page.
+    // CDP's navigation waiter requires the load event; discovery only needs DOM.
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    let mut warnings = Vec::new();
+    loop {
+        let ready = tab.evaluate(
+            "JSON.stringify({usable:location.protocol.startsWith('http') && !!document.body && document.body.childElementCount > 0, ready:document.readyState !== 'loading'})",
+            false,
+        ).ok().and_then(|result| result.value)
+            .and_then(|value| value.as_str().and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok()));
+        let usable = ready.as_ref().is_some_and(|value| value["usable"] == true);
+        if usable && ready.as_ref().is_some_and(|value| value["ready"] == true) {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            anyhow::ensure!(
+                usable,
+                "Page did not provide a usable document before the timeout"
+            );
+            warnings.push("The page is still loading. Fonts were collected from the available content; some may be missing.".into());
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
 
     // Let dynamic/tester fonts load.
     let _ = tab.evaluate(WARMUP_JS, false);
@@ -147,5 +170,8 @@ fn collect_from_browser(
         .ok_or_else(|| anyhow!("Discovery script returned no data"))?
         .to_string();
 
-    serde_json::from_str(&json).context("Could not parse discovery output")
+    Ok((
+        serde_json::from_str(&json).context("Could not parse discovery output")?,
+        warnings,
+    ))
 }

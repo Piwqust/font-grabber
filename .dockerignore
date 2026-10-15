@@ -1,13 +1,19 @@
-# Used when building deploy/Dockerfile (compose context is the repo root).
-node_modules
-**/target
-fonts
-test-fonts
-test-fonts2
-archive
-dist
-docs
-.git
-.grok
-*.exe
-core/fonts
+# Only build inputs enter the context; never secrets or local output.
+**
+!package.json
+!package-lock.json
+!scripts/
+!scripts/build-ui.cjs
+!core/
+!core/Cargo.toml
+!core/Cargo.lock
+!core/src/
+!core/src/**
+!extension/
+!extension/**
+!deploy/
+!deploy/Dockerfile
+**/.env*
+**/secrets/**
+**/*.key
+**/*.pem

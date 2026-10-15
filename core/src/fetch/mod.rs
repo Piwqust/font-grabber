@@ -26,27 +26,65 @@ pub async fn download_fonts(
     restrict_private: bool,
     logger: Option<Logger>,
 ) -> Result<DownloadBatch> {
+    anyhow::ensure!(
+        !restrict_private || fonts.len() <= 80,
+        "Choose at most 80 fonts per request"
+    );
     let client = build_http_client()?;
     emit_log(
         logger.as_ref(),
         format!("Downloading {} font variant(s)", fonts.len()),
     );
 
-    let mut results = stream::iter(fonts.iter().cloned().enumerate().map(|(index, font)| {
+    let budget = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let http_downloads = stream::iter(fonts.iter().cloned().enumerate().map(|(index, font)| {
+        let budget = budget.clone();
         let client = client.clone();
         let page_url = page_url.to_string();
         let cache_dir = cache_dir.to_path_buf();
         async move {
-            let result =
+            if restrict_private
+                && budget.load(std::sync::atomic::Ordering::Relaxed) >= 128 * 1024 * 1024
+            {
+                return (
+                    index,
+                    font,
+                    Err("Download batch exceeds 128 MiB. Choose fewer files.".into()),
+                );
+            }
+            let mut result =
                 http::download_font(client, font.clone(), page_url, cache_dir, restrict_private)
                     .await
                     .map_err(|error| error.to_string());
+            if restrict_private {
+                if let Ok(cached) = &result {
+                    let size = std::fs::metadata(&cached.cached_path)
+                        .map(|m| m.len())
+                        .unwrap_or_default();
+                    if budget.fetch_add(size, std::sync::atomic::Ordering::Relaxed) + size
+                        > 128 * 1024 * 1024
+                    {
+                        let _ = std::fs::remove_file(&cached.cached_path);
+                        result = Err("Download batch exceeds 128 MiB. Choose fewer files.".into());
+                    }
+                }
+            }
             (index, font, result)
         }
     }))
-    .buffer_unordered(concurrency.max(1))
-    .collect::<Vec<_>>()
-    .await;
+    .buffer_unordered(if restrict_private {
+        1
+    } else {
+        concurrency.max(1)
+    })
+    .collect::<Vec<_>>();
+    let mut results = if restrict_private {
+        tokio::time::timeout(std::time::Duration::from_secs(75), http_downloads)
+            .await
+            .map_err(|_| anyhow::anyhow!("Downloads took too long. Choose fewer files."))?
+    } else {
+        http_downloads.await
+    };
 
     results.sort_by_key(|(index, _, _)| *index);
 

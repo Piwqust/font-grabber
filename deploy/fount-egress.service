@@ -1,0 +1,14 @@
+[Unit]
+Description=Fount egress firewall (before Docker can restart the app)
+DefaultDependencies=no
+After=network-pre.target netfilter-persistent.service ufw.service firewalld.service
+Before=docker.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/fount/deploy/egress.sh boot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target docker.service

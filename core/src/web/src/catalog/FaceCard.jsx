@@ -1,5 +1,5 @@
 import { useStore } from "../store.jsx";
-import { styleLabel } from "../lib/fonts.js";
+import { faceStyle, faceWeight, familyName, styleLabel } from "../lib/fonts.js";
 import { Button } from "../ui/Button.jsx";
 import { Checkbox } from "../ui/Checkbox.jsx";
 import { Disclosure } from "../ui/Disclosure.jsx";
@@ -22,10 +22,11 @@ export function FaceCard({ font }) {
   const store = useStore();
   const selected = store.selectedSet.has(font.id);
   const style = styleLabel(font);
-  const family = font.family || "Unnamed font";
+  const family = familyName(font);
   const source = font.sources?.[0];
   const status = store.downloadStates[font.id];
-  const info = [font.weight, font.stretch, source?.format].filter(Boolean);
+  const weight = font.variable ? font.weight : faceWeight(font);
+  const info = [weight, font.stretch, source?.format].filter(Boolean);
   const action = downloadLabel(status, store.delivery);
 
   const onCardClick = (event) => {
@@ -79,7 +80,7 @@ export function FaceCard({ font }) {
             <dt>Type</dt>
             <dd>
               {font.variable ? "Variable font" : "Static font"} · Weight{" "}
-              {font.weight} · {font.style}
+              {weight} · {faceStyle(font)}
             </dd>
           </div>
           <div>

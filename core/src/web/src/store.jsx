@@ -20,6 +20,7 @@ import {
   familyKey,
   matchesFilter,
   normalizeUrl,
+  prepareCatalogFonts,
 } from "./lib/fonts.js";
 import { dropPreview, resetPreviews } from "./lib/previews.js";
 import { applyPayload, draftIssues } from "./metadata/derive.js";
@@ -48,8 +49,8 @@ const UPLOAD_TOTAL_BYTES = 64 * 1024 * 1024;
 export const FONT_FILE_TYPES = ".ttf,.otf,.woff,.woff2";
 const FONT_FILE_NAME = /\.(ttf|otf|woff2?)$/i;
 
-export const HOSTED =
-  typeof document !== "undefined" && document.body.dataset.hosted === "true";
+import { HOSTED } from "./lib/auth.js";
+export { HOSTED };
 
 const StoreContext = createContext(null);
 
@@ -133,7 +134,7 @@ const initialState = {
 };
 
 export function StoreProvider({ children }) {
-  const [state, setState] = useState(initialState);
+  const [state, setState] = useState(() => ({ ...initialState, history: historyEntries() }));
   const scanRef = useRef(null);
   const coverageRef = useRef(0);
   const restored = useRef(false);
@@ -142,7 +143,11 @@ export function StoreProvider({ children }) {
   // Object URLs made for local previews, and the id of the control the editor
   // was opened from, so focus can go back to it on close.
   const objectUrls = useRef([]);
+  const mounted = useRef(true);
   const metadataReturn = useRef(null);
+  // One inspect at a time: a newer one, or closing the editor, drops the old.
+  const inspectSeq = useRef(0);
+  const inspectRef = useRef(null);
 
   const patch = useCallback((updates) => {
     setState((current) => ({
@@ -164,11 +169,20 @@ export function StoreProvider({ children }) {
     );
   }, [state.fonts, state.query, state.selectedOnly, selectedSet]);
 
-  const groups = useMemo(() => familyGroups(filtered), [filtered]);
+  const groups = useMemo(
+    () => familyGroups(filtered, state.source),
+    [filtered, state.source],
+  );
   const busy = state.scanning || state.grabbing;
   const delivery = HOSTED ? "zip" : state.delivery;
 
   // -- Session -------------------------------------------------------------
+  useEffect(() => () => {
+    mounted.current = false;
+    scanRef.current?.abort();
+    for (const item of objectUrls.current) URL.revokeObjectURL(item.url);
+    resetPreviews();
+  }, []);
   useEffect(() => {
     const saved = loadSession();
     const draft = loadMetadataSession();
@@ -197,7 +211,7 @@ export function StoreProvider({ children }) {
       }));
     }
     if (!saved) return;
-    const fonts = saved.fonts;
+    const fonts = prepareCatalogFonts(saved.fonts);
     patch({
       url: saved.url,
       source: saved.url,
@@ -346,7 +360,7 @@ export function StoreProvider({ children }) {
           signal: controller.signal,
           onStage: (message) => patch({ status: { message, kind: "busy" } }),
         });
-        const fonts = report.fonts || [];
+        const fonts = prepareCatalogFonts(report.fonts || []);
         coverageRef.current++;
         resetPreviews();
         patch({
@@ -391,6 +405,12 @@ export function StoreProvider({ children }) {
                 "Stopped waiting. Previous results are kept; the server may still finish the scan.",
               kind: "",
             },
+          });
+        else if (error.status === 429)
+          // The server is busy, not the address wrong: say only what it said.
+          patch({
+            status: { message: error.message, kind: "error" },
+            canRetry: true,
           });
         else
           patch({
@@ -719,8 +739,19 @@ export function StoreProvider({ children }) {
     objectUrls.current = [];
   }, []);
 
+  const cancelInspect = useCallback(() => {
+    inspectSeq.current++;
+    inspectRef.current?.abort();
+    inspectRef.current = null;
+  }, []);
+
+  /** Starts an inspect; the returned `stale()` turns true once it is superseded. */
   const startMetadata = useCallback(
     (source, previews, message, fallbackId) => {
+      cancelInspect();
+      const mine = inspectSeq.current;
+      const controller = new AbortController();
+      inspectRef.current = controller;
       // A drag, or a file dialogue that has already closed, leaves nothing
       // focused; the control that belongs to this way in is the fallback.
       metadataReturn.current = document.activeElement?.id || fallbackId || null;
@@ -732,8 +763,12 @@ export function StoreProvider({ children }) {
         inspecting: true,
         status: { message, kind: "busy" },
       });
+      return {
+        signal: controller.signal,
+        stale: () => mine !== inspectSeq.current || !mounted.current,
+      };
     },
-    [patchMetadata],
+    [patchMetadata, cancelInspect],
   );
 
   /** Turns an inspect response into the slice the form reads. */
@@ -779,7 +814,8 @@ export function StoreProvider({ children }) {
 
   const openMetadataFromSelection = useCallback(async () => {
     const current = latest.current;
-    if (current.busy || current.metadata.inspecting) return;
+    if (current.scanning || current.grabbing || current.metadata.inspecting)
+      return;
     const ids = current.selected.filter((id) =>
       current.fonts.some((font) => font.id === id),
     );
@@ -797,16 +833,17 @@ export function StoreProvider({ children }) {
       mode: current.scannedMode,
       ids,
     };
-    startMetadata(
+    const request = startMetadata(
       source,
       previews,
       `Reading the names in ${ids.length} file${ids.length === 1 ? "" : "s"}…`,
       "edit-metadata-selection",
     );
     try {
-      receiveInspection(await api.inspectMetadata(source), ids.length);
+      const data = await api.inspectMetadata(source, request.signal);
+      if (!request.stale()) receiveInspection(data, ids.length);
     } catch (error) {
-      failMetadata(error);
+      if (!request.stale()) failMetadata(error);
     }
   }, [releaseUploads, startMetadata, receiveInspection, failMetadata]);
 
@@ -828,6 +865,7 @@ export function StoreProvider({ children }) {
               ? "Those files come to more than 64 MB together."
               : null;
       if (problem) {
+        cancelInspect();
         metadataReturn.current = document.activeElement?.id || "metadata-files";
         patchMetadata({
           ...emptyMetadata,
@@ -842,7 +880,7 @@ export function StoreProvider({ children }) {
       const skipped = refused
         ? ` ${refused} other file${refused === 1 ? " was" : "s were"} skipped.`
         : "";
-      startMetadata(
+      const request = startMetadata(
         {
           kind: "upload",
           files: chosen.map((file) => ({ name: file.name, size: file.size })),
@@ -861,7 +899,12 @@ export function StoreProvider({ children }) {
             data: await api.fileToBase64(file),
           })),
         );
-        const data = await api.inspectMetadata({ kind: "upload", files });
+        if (request.stale()) return;
+        const data = await api.inspectMetadata(
+          { kind: "upload", files },
+          request.signal,
+        );
+        if (request.stale()) return;
         const fonts = receiveInspection(data, chosen.length);
 
         // Previews come from the files themselves; there is nothing to fetch.
@@ -883,10 +926,11 @@ export function StoreProvider({ children }) {
         }
         patchMetadata({ previews });
       } catch (error) {
-        failMetadata(error);
+        if (!request.stale()) failMetadata(error);
       }
     },
     [
+      cancelInspect,
       releaseUploads,
       startMetadata,
       receiveInspection,
@@ -1052,6 +1096,11 @@ export function StoreProvider({ children }) {
   );
 
   const closeMetadata = useCallback(() => {
+    if (latest.current.metadata.applying) return;
+    cancelInspect();
+    if (["#font-details", "#font-styles"].includes(location.hash)) {
+      history.replaceState(history.state, "", location.pathname + location.search);
+    }
     releaseUploads();
     // Leaving an editor that was opened from local files lands back on the
     // drop zone, not on the address field: that is where it came from.
@@ -1065,14 +1114,21 @@ export function StoreProvider({ children }) {
     metadataReturn.current = null;
     // The trigger is re-created with the screen behind the editor, so it is
     // waited for over a few frames rather than assumed to be there already.
-    let tries = 3;
+    let tries = 12;
     const restore = () => {
-      const target = document.getElementById(id || "");
-      if (target) target.focus({ preventScroll: true });
+      const target = document.getElementById(id || "") ||
+        document.getElementById("edit-metadata-selection") ||
+        document.getElementById("edit-metadata-bar") ||
+        document.getElementById("metadata-files") ||
+        document.getElementById("url");
+      if (target) {
+        target.scrollIntoView({ block: "center", behavior: "instant" });
+        target.focus({ preventScroll: true });
+      }
       else if (--tries > 0) requestAnimationFrame(restore);
     };
     requestAnimationFrame(restore);
-  }, [releaseUploads, patch]);
+  }, [cancelInspect, releaseUploads, patch]);
 
   // Changing the preview text invalidates a coverage run made against the old text.
   const setSample = useCallback(

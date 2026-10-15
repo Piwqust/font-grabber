@@ -131,7 +131,7 @@ pub(super) async fn export(State(state): State<AppState>, Json(body): Json<GrabB
 }
 
 async fn prepare_export(state: &AppState, body: GrabBody) -> Result<serde_json::Value> {
-    anyhow::ensure!(!body.ids.is_empty(), "No fonts were selected");
+    let ids = unique_ids(&body.ids, state.hosted)?;
     let delivery = body.delivery.as_deref().unwrap_or("zip");
     anyhow::ensure!(
         matches!(delivery, "zip" | "folder"),
@@ -143,16 +143,17 @@ async fn prepare_export(state: &AppState, body: GrabBody) -> Result<serde_json::
     );
     let mode = parse_mode(body.mode.as_deref());
     let report = report_for(state, &body.url, mode).await?;
-    let wanted: HashSet<_> = body.ids.iter().cloned().collect();
+    let wanted: HashSet<_> = ids.iter().cloned().collect();
     let selected: Vec<_> = report
         .fonts
         .iter()
         .filter(|f| wanted.contains(&f.id))
         .cloned()
         .collect();
+    let found: HashSet<&str> = selected.iter().map(|f| f.id.as_str()).collect();
     let mut results = Vec::new();
-    for id in &wanted {
-        if !selected.iter().any(|font| &font.id == id) {
+    for id in &ids {
+        if !found.contains(id.as_str()) {
             results.push(FileResult::failed(
                 id.clone(),
                 "Unavailable font".into(),
@@ -209,7 +210,7 @@ async fn prepare_export(state: &AppState, body: GrabBody) -> Result<serde_json::
     let filename = zip_filename(&report.page_url);
     deliver(
         state,
-        &body.ids,
+        &ids,
         &conversion.converted,
         results,
         delivery,
@@ -251,6 +252,11 @@ pub(super) async fn deliver(
             }
         }
     } else if !converted.is_empty() {
+        let output_bytes: usize = converted.iter().map(|font| font.data.len()).sum();
+        anyhow::ensure!(
+            !state.hosted || output_bytes <= 128 * 1024 * 1024,
+            "Choose fewer files: expanded fonts exceed 128 MiB"
+        );
         // ZIP goes directly to a temporary file, never a second in-memory archive.
         let mut file = tempfile::Builder::new()
             .prefix("fount-")
@@ -282,6 +288,15 @@ pub(super) async fn deliver(
             .to_string();
         let mut exports = state.exports.lock().await;
         exports.retain(|_, archive| archive.created.elapsed() < ARCHIVE_TTL);
+        let retained_bytes: u64 = exports
+            .values()
+            .filter_map(|a| a.file.as_file().metadata().ok())
+            .map(|m| m.len())
+            .sum();
+        anyhow::ensure!(
+            !state.hosted || retained_bytes + file.as_file().metadata()?.len() <= 128 * 1024 * 1024,
+            "Temporary archive space is full. Wait for earlier downloads to expire."
+        );
         anyhow::ensure!(
             exports.len() < 32,
             "Too many prepared archives. Wait for an earlier archive to expire and retry."
@@ -296,7 +311,14 @@ pub(super) async fn deliver(
         );
         download_url = Some(format!("/api/export/{id}"));
     }
-    results.sort_by_key(|r| ids.iter().position(|id| id == &r.id).unwrap_or(usize::MAX));
+    // First occurrence wins; a lookup table keeps the sort linear in the id count.
+    let order: HashMap<&str, usize> = ids
+        .iter()
+        .enumerate()
+        .rev()
+        .map(|(index, id)| (id.as_str(), index))
+        .collect();
+    results.sort_by_key(|r| order.get(r.id.as_str()).copied().unwrap_or(usize::MAX));
     let saved_count = results.iter().filter(|r| r.status != "error").count();
     Ok(
         serde_json::json!({"results":results,"saved_count":saved_count,"requested_count":ids.iter().collect::<HashSet<_>>().len(),
@@ -347,6 +369,7 @@ pub(super) async fn archive(State(state): State<AppState>, Path(id): Path<String
 pub(super) struct CoverageBody {
     url: String,
     mode: Option<String>,
+    #[serde(deserialize_with = "bounded_ids")]
     ids: Vec<String>,
     text: String,
 }
@@ -429,6 +452,8 @@ mod tests {
     use super::*;
     fn test_state() -> AppState {
         AppState {
+            auth: None,
+            jobs: jobs::semaphore(),
             webdriver_url: String::new(),
             concurrency: 1,
             hosted: false,
@@ -492,10 +517,7 @@ mod tests {
         assert_eq!(missing_characters(&sfnt, "ЖяЖ").unwrap(), vec!['Ж', 'я']);
         assert_eq!(missing_characters(&sfnt, "漢漢").unwrap(), vec!['漢']);
         assert!(missing_characters(b"broken", "A").is_err());
-        let international = std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "fonts/gt-america.com/GT_America_Intl_Mono/GT-America-Intl-Mono-400-Variable.ttf",
-        ))
-        .unwrap();
+        let international = convert::tests::script_fixture(&[&['H', 'e', 'l', 'o', ' ', 'Ж', 'я']]);
         assert!(missing_characters(&international, "Hello Жя")
             .unwrap()
             .is_empty());
