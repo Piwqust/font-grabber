@@ -120,6 +120,7 @@ pub fn apply_name_draft(sfnt_data: &[u8], draft: &NameDraft) -> Result<Vec<u8>> 
             3,
             format!("{};Fount;{ps}", version.trim_start_matches("Version ")),
         );
+        fill_required_names(&mut replacements, &existing);
         return rewrite_names(sfnt_data, &tables, name_table, &replacements);
     }
     let family = {
@@ -193,7 +194,60 @@ pub fn apply_name_draft(sfnt_data: &[u8], draft: &NameDraft) -> Result<Vec<u8>> 
     if draft.version.is_none() {
         replacements.remove(&5);
     }
+    fill_required_names(&mut replacements, &existing);
     rewrite_names(sfnt_data, &tables, name_table, &replacements)
+}
+
+/// Windows refuses a font whose name IDs 1-6 are missing or empty ("not a
+/// valid font file"). Fonts scrubbed for the web often ship them as "" or
+/// ".", and an edit only rewrites the fields that changed, so any required
+/// name that would still be unusable is derived from the ones that are.
+fn fill_required_names(replacements: &mut BTreeMap<u16, String>, existing: &BTreeMap<u16, String>) {
+    let usable = |id: u16, replacements: &BTreeMap<u16, String>| {
+        replacements
+            .get(&id)
+            .or_else(|| existing.get(&id))
+            .filter(|value| is_valid_font_name(value))
+            .cloned()
+    };
+    let family = usable(16, replacements)
+        .or_else(|| usable(1, replacements))
+        .unwrap_or_else(|| "Font".to_string());
+    let subfamily = usable(17, replacements)
+        .or_else(|| usable(2, replacements))
+        .unwrap_or_else(|| "Regular".to_string());
+    let version = usable(5, replacements).unwrap_or_else(|| "Version 1.000".to_string());
+    let postscript = usable(6, replacements)
+        .unwrap_or_else(|| compose_post_script_name(&family, &subfamily));
+    let fills = [
+        (1, family.clone()),
+        (2, legacy_subfamily(&subfamily).to_string()),
+        (4, compose_full_name(&family, &subfamily)),
+        (5, version.clone()),
+        (6, postscript.clone()),
+        (
+            3,
+            format!("{};Fount;{postscript}", version.trim_start_matches("Version ")),
+        ),
+    ];
+    for (id, value) in fills {
+        if usable(id, replacements).is_none() {
+            replacements.insert(id, value);
+        }
+    }
+}
+
+/// Name ID 2 only allows the four styles Windows links into one family.
+fn legacy_subfamily(subfamily: &str) -> &'static str {
+    let lower = subfamily.to_ascii_lowercase();
+    let italic = lower.contains("italic") || lower.contains("oblique");
+    let bold = lower.split_whitespace().any(|word| word == "bold");
+    match (bold, italic) {
+        (true, true) => "Bold Italic",
+        (true, false) => "Bold",
+        (false, true) => "Italic",
+        (false, false) => "Regular",
+    }
 }
 
 pub fn normalize_version(value: &str) -> Result<String> {
@@ -826,6 +880,51 @@ mod tests {
             crate::domain::FontFormat::Woff2,
         )
         .unwrap()
+    }
+
+    /// A web font with its names scrubbed the way sites ship them: empty and ".".
+    fn scrubbed() -> Vec<u8> {
+        let sfnt = geist();
+        let tables = parse_tables(&sfnt).unwrap();
+        let names = windows_name_table(&[(1, "."), (2, ""), (3, "."), (4, "."), (5, ""), (6, ".")]);
+        rebuild_sfnt_with_name_table(&sfnt, &tables, &names).unwrap()
+    }
+
+    fn windows_names(sfnt: &[u8]) -> BTreeMap<u16, String> {
+        let tables = parse_tables(sfnt).unwrap();
+        let entry = tables.iter().find(|entry| &entry.tag == b"name").unwrap();
+        read_name_values(slice_range(sfnt, entry.offset, entry.length).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn an_edit_never_leaves_required_names_empty() {
+        // The editor sends only what changed: here, a new family name.
+        let draft = NameDraft {
+            name_changes: Some(BTreeMap::from([(1, "Stefan Autism".to_string())])),
+            ..NameDraft::default()
+        };
+        let names = windows_names(&apply_name_draft(&scrubbed(), &draft).unwrap());
+        for id in REQUIRED_WINDOWS_NAME_IDS {
+            assert!(
+                names.get(&id).is_some_and(|value| is_valid_font_name(value)),
+                "name ID {id} is usable: {:?}",
+                names.get(&id)
+            );
+        }
+        assert_eq!(names[&1], "Stefan Autism");
+        assert_eq!(names[&2], "Regular");
+        assert_eq!(names[&4], "Stefan Autism");
+
+        // The full-draft path, with the version deliberately cleared.
+        let draft = NameDraft {
+            family: "Stefan Autism".into(),
+            subfamily: "Bold Italic".into(),
+            version: Some(String::new()),
+            ..NameDraft::default()
+        };
+        let names = windows_names(&apply_name_draft(&scrubbed(), &draft).unwrap());
+        assert_eq!(names[&2], "Bold Italic");
+        assert!(names.get(&5).is_some_and(|value| is_valid_font_name(value)));
     }
 
     #[test]
