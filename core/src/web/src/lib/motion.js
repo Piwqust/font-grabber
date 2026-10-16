@@ -227,35 +227,29 @@ export function useParallax(strength = 40) {
   return ref;
 }
 
-/** Animates a sliding indicator to sit under the active element of a group. */
-export function useSlidingIndicator(activeKey) {
+/**
+ * Clips a copy of a group, drawn in its active style, down to the active
+ * option. Moving the clip moves the highlight and recolours the label in one
+ * step, so there is never a frame where the label is the wrong colour for the
+ * background under it. The clip is a CSS transition: it retargets mid-flight
+ * when options are clicked quickly, and it is skipped for keyboard changes.
+ */
+export function useActiveClip(activeKey) {
   const groupRef = useRef(null);
-  const indicatorRef = useRef(null);
+  const clipRef = useRef(null);
   const previous = useRef(null);
 
   const settle = useCallback((animateChange) => {
     const group = groupRef.current;
-    const indicator = indicatorRef.current;
-    const active = group?.querySelector('[data-active="true"]');
-    if (!group || !indicator || !active) return;
-    const frame = {
-      x: active.offsetLeft - group.clientLeft,
-      width: active.offsetWidth,
-      height: active.offsetHeight,
-      y: active.offsetTop - group.clientTop,
-    };
-    indicator.style.height = `${frame.height}px`;
-    indicator.style.top = `${frame.y}px`;
-    if (animateChange && !reduced.matches) {
-      playAlways(
-        indicator,
-        { x: frame.x, width: frame.width },
-        { type: spring, duration: 0.32, bounce: 0.12 },
-      );
-    } else {
-      indicator.style.transform = `translateX(${frame.x}px)`;
-      indicator.style.width = `${frame.width}px`;
-    }
+    const layer = clipRef.current;
+    const active = group?.querySelector('button[data-active="true"]');
+    if (!group || !layer || !active) return;
+    const top = active.offsetTop;
+    const left = active.offsetLeft;
+    const right = layer.offsetWidth - left - active.offsetWidth;
+    const bottom = layer.offsetHeight - top - active.offsetHeight;
+    layer.dataset.instant = String(!animateChange || keyboard);
+    layer.style.clipPath = `inset(${top}px ${right}px ${bottom}px ${left}px round 999px)`;
   }, []);
 
   useLayoutEffect(() => {
@@ -273,14 +267,14 @@ export function useSlidingIndicator(activeKey) {
     return () => observer.disconnect();
   }, [settle]);
 
-  return { groupRef, indicatorRef };
+  return { groupRef, clipRef };
 }
 
 /**
  * Counts up to a number when the element first appears. Used for the result
  * counts, where watching the number land reads as "this just finished".
  */
-export function useCountUp(value, { duration = 0.7 } = {}) {
+export function useCountUp(value, { duration = 0.28 } = {}) {
   const [display, setDisplay] = useState(value);
   const previous = useRef(value);
   useEffect(() => {

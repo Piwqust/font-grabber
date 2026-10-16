@@ -17,7 +17,17 @@
     background-color 0.16s var(--ease),
     border-color 0.16s var(--ease),
     color 0.16s var(--ease),
-    box-shadow 0.16s var(--ease);
+    box-shadow 0.16s var(--ease),
+    transform 0.12s var(--ease);
+}
+/* Press feedback lives in CSS so it lands on the compositor even while the
+   catalogue is busy re-rendering. Wide buttons give a little less. */
+.btn:active {
+  transform: scale(0.97);
+}
+.btn-l:active,
+.btn-full:active {
+  transform: scale(0.985);
 }
 .btn:disabled,
 .btn[aria-disabled="true"] {
@@ -103,8 +113,40 @@
 .btn .btn-end {
   transition: transform 0.2s var(--ease);
 }
-.btn:hover .btn-end {
-  transform: translateX(2px);
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover .btn-end {
+    transform: translateX(2px);
+  }
+}
+
+/* Two labels stacked in one cell. Crossfading through a slight blur reads as
+   the label changing, not as two words overlapping. */
+.label-swap {
+  display: inline-grid;
+}
+.label-swap-item {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  transition:
+    opacity 0.2s var(--ease),
+    filter 0.2s var(--ease);
+}
+.label-swap[data-busy="true"] > :first-child,
+.label-swap[data-busy="false"] > :last-child {
+  opacity: 0;
+  filter: blur(2px);
+}
+.label-swap[data-busy="false"] .spinner {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .label-swap-item {
+    filter: none !important;
+    transition: opacity 0.2s var(--ease);
+  }
 }
 
 /* --- Spinner -------------------------------------------------------------- */
@@ -222,16 +264,38 @@
   border-radius: var(--radius-pill);
   isolation: isolate;
 }
-.segmented-indicator {
+/* The active copy. The shadow sits on the wrapper so it follows the clipped
+   pill rather than being cut off with the rest of the layer. */
+.segmented-active {
   position: absolute;
-  left: 0;
-  top: 3px;
-  z-index: -1;
-  border-radius: var(--radius-pill);
-  background: var(--surface);
-  box-shadow: 0 1px 2px rgb(20 20 24 / 0.09);
-  will-change: transform, width;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgb(20 20 24 / 0.1));
 }
+.segmented-active-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  background: var(--surface);
+  clip-path: inset(50%);
+  transition: clip-path 0.26s cubic-bezier(0.77, 0, 0.175, 1);
+}
+.segmented-active-layer[data-instant="true"] {
+  transition-duration: 0ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .segmented-active-layer {
+    transition: none;
+  }
+}
+.segmented:has(.segmented-option:disabled) .segmented-active {
+  opacity: 0.45;
+}
+/* One weight for every option: both copies must measure the same, and a
+   label that thickens when chosen would nudge its neighbours. */
 .segmented-option {
   display: inline-flex;
   align-items: center;
@@ -240,17 +304,23 @@
   min-height: 30px;
   border-radius: var(--radius-pill);
   font-size: 13px;
+  font-weight: 500;
   color: var(--muted);
   white-space: nowrap;
-  transition: color 0.16s var(--ease);
+  transition:
+    color 0.16s var(--ease),
+    transform 0.12s var(--ease);
+}
+button.segmented-option:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .segmented-m .segmented-option {
   min-height: 34px;
   font-size: 14px;
 }
-.segmented-option[data-active="true"] {
+.segmented-option[data-active="true"],
+.segmented-active .segmented-option {
   color: var(--ink);
-  font-weight: 500;
 }
 .segmented-option:hover:not(:disabled) {
   color: var(--ink);
@@ -267,7 +337,8 @@
   font: 400 11px/1.5 var(--mono);
   color: var(--muted);
 }
-.segmented-option[data-active="true"] .segmented-badge {
+.segmented-option[data-active="true"] .segmented-badge,
+.segmented-active .segmented-badge {
   background: var(--ink);
   color: var(--page);
 }
@@ -399,8 +470,10 @@
   background: var(--surface);
   border: 1.5px solid var(--ink);
 }
-.slider-input:hover::-webkit-slider-thumb {
-  transform: scale(1.15);
+@media (hover: hover) and (pointer: fine) {
+  .slider-input:hover::-webkit-slider-thumb {
+    transform: scale(1.15);
+  }
 }
 .slider-input:disabled {
   opacity: 0.45;
@@ -489,22 +562,28 @@
   overflow: auto;
   overscroll-behavior: contain;
   opacity: 0;
-  transform: translateY(-4px) scale(0.97);
-  transform-origin: var(--popover-origin, top right);
+  transform: var(--floating-shift, translateY(-4px)) scale(0.97);
+  transform-origin: var(--floating-origin, top right);
+  /* Closing is quicker than opening: by then the decision has been made. */
   transition:
-    opacity 0.18s var(--ease),
-    transform 0.18s var(--ease),
-    display 0.18s allow-discrete;
-  transition-behavior: allow-discrete;
+    opacity 0.12s var(--ease),
+    transform 0.12s var(--ease),
+    overlay 0.12s allow-discrete,
+    display 0.12s allow-discrete;
 }
 .popover:popover-open {
   opacity: 1;
   transform: none;
+  transition:
+    opacity 0.18s var(--ease),
+    transform 0.18s var(--ease),
+    overlay 0.18s allow-discrete,
+    display 0.18s allow-discrete;
 }
 @starting-style {
   .popover:popover-open {
     opacity: 0;
-    transform: translateY(-4px) scale(0.97);
+    transform: var(--floating-shift, translateY(-4px)) scale(0.97);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -586,6 +665,9 @@
 .tooltip[data-open="true"] {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+.tooltip[data-instant="true"] {
+  transition-duration: 0ms;
 }
 @media (pointer: coarse) {
   .tooltip {

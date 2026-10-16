@@ -22,8 +22,10 @@ export function Catalog() {
   useEffect(() => {
     if (lastSignature.current === signature) return;
     lastSignature.current = signature;
+    // Only the first screenful cascades; a 40-row stagger would make the
+    // last result wait most of a second for no reason.
     play(
-      listRef.current?.querySelectorAll(".family") || [],
+      [...(listRef.current?.querySelectorAll(".family") || [])].slice(0, 8),
       { opacity: [0, 1], transform: ["translateY(8px)", "translateY(0px)"] },
       { duration: 0.24, delay: stagger(0.02), ease: EASE },
     );
@@ -91,16 +93,27 @@ export function Catalog() {
 function MobileSelectionBar() {
   const store = useStore();
   const narrow = useMediaQuery("(max-width: 1080px)");
-  if (!narrow || !store.selected.length) return null;
+  const count = store.selected.length;
+  // While the bar slides away after the selection is cleared, it keeps
+  // showing the last count instead of flashing "0 files".
+  const shown = useRef(count);
+  if (count) shown.current = count;
+  if (!narrow) return null;
+  const open = count > 0;
   const verb = store.delivery === "folder" ? "Save" : "Download";
 
   return (
-    <div class="selection-bar">
+    <div
+      class="selection-bar"
+      data-open={String(open)}
+      aria-hidden={open ? undefined : "true"}
+      inert={!open}
+    >
       <span class="selection-bar-count">
-        {store.selected.length} file{store.selected.length === 1 ? "" : "s"}
+        {shown.current} file{shown.current === 1 ? "" : "s"}
       </span>
       <Button
-        id="edit-metadata-bar"
+        id={open ? "edit-metadata-bar" : undefined}
         variant="quiet"
         size="m"
         icon="type"

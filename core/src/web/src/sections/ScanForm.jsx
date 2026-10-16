@@ -4,6 +4,7 @@ import { useFloating } from "../lib/floating.js";
 import { Button, IconButton } from "../ui/Button.jsx";
 import { Field } from "../ui/Field.jsx";
 import { Icon } from "../ui/Icon.jsx";
+import { Spinner } from "../ui/Spinner.jsx";
 import { Disclosure } from "../ui/Disclosure.jsx";
 import { Tooltip } from "../ui/Tooltip.jsx";
 
@@ -84,11 +85,22 @@ export function ScanForm({ compact = false }) {
           variant="solid"
           size={compact ? "m" : "l"}
           type="submit"
-          busy={store.scanning}
-          iconEnd={store.scanning ? undefined : "arrowRight"}
+          aria-busy={store.scanning ? "true" : undefined}
           disabled={store.busy}
         >
-          {store.scanning ? "Scanning…" : "Find fonts"}
+          {/* Both labels share one cell, so the button keeps the width of the
+              longer one and the field beside it does not jump when a scan
+              starts. */}
+          <span class="label-swap" data-busy={String(store.scanning)}>
+            <span class="label-swap-item" aria-hidden={store.scanning ? "true" : undefined}>
+              Find fonts
+              <Icon name="arrowRight" size={18} class="btn-end" />
+            </span>
+            <span class="label-swap-item" aria-hidden={store.scanning ? undefined : "true"}>
+              <Spinner size={18} />
+              Scanning…
+            </span>
+          </span>
         </Button>
       </form>
 
@@ -125,8 +137,18 @@ function ModeMenu({ compact }) {
   const store = useStore();
   const [open, setOpen] = useState(false);
   const current = MODES.find((m) => m.value === store.mode) || MODES[0];
-  const { anchorRef: wrap, floatingRef: listRef, startAutoUpdate, stopAutoUpdate } =
-    useFloating({ placement: "bottom-end", offsetPx: 10 });
+  const {
+    anchorRef: wrap,
+    floatingRef: listRef,
+    reposition,
+    startAutoUpdate,
+    stopAutoUpdate,
+  } = useFloating({ placement: "bottom-end", offsetPx: 10 });
+
+  // The list stays mounted so it can animate out; placing it once up front
+  // means the first opening starts from the trigger, not from wherever the
+  // unpositioned list happened to sit.
+  useEffect(() => reposition(), [reposition]);
 
   useEffect(() => {
     if (!open) { stopAutoUpdate(); return; }
@@ -163,34 +185,40 @@ function ModeMenu({ compact }) {
         <span>{current.label}</span>
         <Icon name="chevronDown" size={14} />
       </button>
-      {open ? (
-        <ul class="mode-list" role="listbox" aria-label="Scan method" ref={listRef}>
-          {MODES.map((mode) => (
-            <li key={mode.value}>
-              <button
-                type="button"
-                role="option"
-                class="mode-option"
-                aria-selected={mode.value === store.mode}
-                onClick={() => {
-                  store.patch({ mode: mode.value });
-                  setOpen(false);
-                }}
-              >
-                <span class="mode-option-check">
-                  {mode.value === store.mode ? (
-                    <Icon name="check" size={14} />
-                  ) : null}
-                </span>
-                <span class="mode-option-text">
-                  <span class="mode-option-label">{mode.label}</span>
-                  <span class="mode-option-detail">{mode.detail}</span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <ul
+        class="mode-list"
+        role="listbox"
+        aria-label="Scan method"
+        ref={listRef}
+        data-open={String(open)}
+        aria-hidden={open ? undefined : "true"}
+        inert={!open}
+      >
+        {MODES.map((mode) => (
+          <li key={mode.value}>
+            <button
+              type="button"
+              role="option"
+              class="mode-option"
+              aria-selected={mode.value === store.mode}
+              onClick={() => {
+                store.patch({ mode: mode.value });
+                setOpen(false);
+              }}
+            >
+              <span class="mode-option-check">
+                {mode.value === store.mode ? (
+                  <Icon name="check" size={14} />
+                ) : null}
+              </span>
+              <span class="mode-option-text">
+                <span class="mode-option-label">{mode.label}</span>
+                <span class="mode-option-detail">{mode.detail}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

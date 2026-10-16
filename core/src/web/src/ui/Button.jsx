@@ -1,5 +1,4 @@
 import { forwardRef } from "preact/compat";
-import { usePressScale } from "../lib/interaction.js";
 import { Icon } from "./Icon.jsx";
 import { Spinner } from "./Spinner.jsx";
 
@@ -30,7 +29,6 @@ export const Button = forwardRef(function Button(
   },
   ref,
 ) {
-  const pressRef = usePressScale(size === "l" ? 0.985 : 0.96);
   const Tag = as || "button";
   const glyph = size === "s" ? 15 : 18;
   const classes = [
@@ -47,11 +45,7 @@ export const Button = forwardRef(function Button(
 
   return (
     <Tag
-      ref={(node) => {
-        pressRef.current = node;
-        if (typeof ref === "function") ref(node);
-        else if (ref) ref.current = node;
-      }}
+      ref={ref}
       class={classes}
       disabled={Tag === "button" ? disabled || busy : undefined}
       aria-busy={busy ? "true" : undefined}

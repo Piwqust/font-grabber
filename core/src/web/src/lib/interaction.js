@@ -10,7 +10,7 @@
 // is the card's position; everything else (tilt, lift, the rotation that
 // trails a fast drag) is layered on top of it and falls away on release.
 import { useEffect, useRef } from "preact/hooks";
-import { play, playAlways, prefersReduced, spring, EASE } from "./motion.js";
+import { playAlways, prefersReduced, EASE } from "./motion.js";
 import { cardPosition, forgetCardPosition, rememberCardPosition } from "./storage.js";
 
 const TILT = 10;
@@ -420,28 +420,5 @@ export function useSpecimenCard({
     api.current.home?.();
   }, [resetSignal]);
 
-  return ref;
-}
-
-/** Adds a pressed-scale response to any button-like element. */
-export function usePressScale(scale = 0.97) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const down = () => play(node, { scale }, { duration: 0.12, ease: EASE });
-    const up = () =>
-      play(node, { scale: 1 }, { type: spring, duration: 0.3, bounce: 0.3 });
-    node.addEventListener("pointerdown", down);
-    node.addEventListener("pointerup", up);
-    node.addEventListener("pointerleave", up);
-    node.addEventListener("pointercancel", up);
-    return () => {
-      node.removeEventListener("pointerdown", down);
-      node.removeEventListener("pointerup", up);
-      node.removeEventListener("pointerleave", up);
-      node.removeEventListener("pointercancel", up);
-    };
-  }, [scale]);
   return ref;
 }

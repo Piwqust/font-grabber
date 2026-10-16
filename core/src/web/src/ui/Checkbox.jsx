@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "preact/hooks";
-import { play, spring } from "../lib/motion.js";
+import { play, EASE } from "../lib/motion.js";
 import { Icon } from "./Icon.jsx";
 
 /**
@@ -29,8 +29,10 @@ export function Checkbox({
     if (checked && !wasChecked.current)
       play(
         boxRef.current,
-        { scale: [0.82, 1] },
-        { type: spring, duration: 0.3, bounce: 0.35 },
+        // A full transform string, not the `scale` shorthand, so the browser
+        // can run it off the main thread while the catalogue re-renders.
+        { transform: ["scale(0.9)", "scale(1)"] },
+        { duration: 0.16, ease: EASE },
       );
     wasChecked.current = checked;
   }, [checked]);

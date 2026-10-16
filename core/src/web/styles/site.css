@@ -41,7 +41,9 @@
   white-space: nowrap;
 }
 .wordmark .mark { transition: transform 0.4s var(--ease); }
-.wordmark:hover .mark { transform: rotate(-8deg); }
+@media (hover: hover) and (pointer: fine) {
+  .wordmark:hover .mark { transform: rotate(-8deg); }
+}
 .island-start { display: flex; align-items: center; gap: 0.35rem; flex: 0 0 auto; }
 .island-end { display: flex; align-items: center; gap: 0.5rem; margin-left: auto; min-width: 0; }
 .island-nav { display: flex; gap: 0.25rem; margin-inline: auto; }
@@ -324,17 +326,31 @@
   background: var(--surface);
   box-shadow: var(--shadow-pop);
   text-align: left;
-  animation: menu-in 0.16s var(--ease);
+  /* Transitions rather than keyframes, so a quick open-close-open retargets
+     from where it is instead of restarting. Closing is the faster half. */
+  opacity: 0;
+  visibility: hidden;
+  transform: var(--floating-shift, translateY(-4px)) scale(0.97);
+  transform-origin: var(--floating-origin, top right);
+  transition:
+    opacity 0.12s var(--ease),
+    transform 0.12s var(--ease),
+    visibility 0s linear 0.12s;
 }
-@keyframes menu-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
+.mode-list[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition:
+    opacity 0.18s var(--ease),
+    transform 0.18s var(--ease),
+    visibility 0s;
 }
 @media (prefers-reduced-motion: reduce) {
-  .mode-list {
-    animation: none;
+  .mode-list,
+  .mode-list[data-open="true"] {
+    transform: none;
+    transition: none;
   }
 }
 .mode-option {
@@ -345,7 +361,9 @@
   padding: 0.5rem 0.6rem;
   border-radius: var(--radius-s);
   text-align: left;
-  transition: background-color 0.14s var(--ease);
+  transition:
+    background-color 0.14s var(--ease),
+    transform 0.12s var(--ease);
 }
 .mode-option:hover,
 .mode-option:focus-visible {
@@ -905,7 +923,7 @@
   text-align: center;
   text-wrap: balance;
   overflow-wrap: anywhere;
-  transition: font-size 0.12s linear;
+  /* No transition: the size follows the slider under the pointer. */
 }
 .playground-controls {
   display: flex;
@@ -972,10 +990,12 @@
   box-shadow: var(--shadow-card);
   overflow: hidden;
   transform: rotate(1.5deg);
-  transition: transform 0.5s var(--ease);
+  transition: transform 0.3s var(--ease);
 }
-.extension-panel:hover .popup-mock {
-  transform: rotate(0deg) translateY(-4px);
+@media (hover: hover) and (pointer: fine) {
+  .extension-panel:hover .popup-mock {
+    transform: rotate(0deg) translateY(-4px);
+  }
 }
 .popup-head {
   display: flex;
@@ -1183,6 +1203,8 @@
   min-width: 0;
   text-align: left;
   padding: 0.25rem 0;
+  transform-origin: left center;
+  transition: transform 0.12s var(--ease);
 }
 .family-chevron {
   align-self: center;
@@ -1293,9 +1315,11 @@
     box-shadow 0.18s var(--ease),
     transform 0.18s var(--ease);
 }
-.face:hover {
-  border-color: var(--line-strong);
-  box-shadow: var(--shadow-card);
+@media (hover: hover) and (pointer: fine) {
+  .face:hover {
+    border-color: var(--line-strong);
+    box-shadow: var(--shadow-card);
+  }
 }
 .face[data-selected="true"] {
   border-color: var(--ink);
@@ -2031,21 +2055,35 @@
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-pop);
-  animation: bar-in 0.28s var(--ease);
+  /* It leaves the way it came, and faster than it arrived. */
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 12px);
+  transition:
+    opacity 0.16s var(--ease),
+    transform 0.16s var(--ease),
+    visibility 0s linear 0.16s;
+}
+.selection-bar[data-open="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%);
+  transition:
+    opacity 0.24s var(--ease),
+    transform 0.24s var(--ease),
+    visibility 0s;
 }
 .selection-bar-count {
   font: 400 12px/1 var(--mono);
   white-space: nowrap;
 }
-@keyframes bar-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 12px);
-  }
-}
 @media (prefers-reduced-motion: reduce) {
-  .selection-bar {
-    animation: none;
+  .selection-bar,
+  .selection-bar[data-open="true"] {
+    transform: translateX(-50%);
+    transition:
+      opacity 0.16s var(--ease),
+      visibility 0s linear 0.16s;
   }
 }
 
@@ -2196,7 +2234,7 @@
 
 /* Presets */
 .me-presets { display: grid; gap: 2px; }
-.me-preset-item { display: grid; gap: 0.15rem; padding: 0.6rem 0.75rem; border-radius: var(--radius-s); text-align: left; transition: background 0.12s var(--ease); }
+.me-preset-item { display: grid; gap: 0.15rem; padding: 0.6rem 0.75rem; border-radius: var(--radius-s); text-align: left; transition: background 0.12s var(--ease), transform 0.12s var(--ease); }
 .me-preset-item:hover { background: var(--surface-sunk); }
 .me-preset-item[aria-pressed="true"] { background: var(--accent-soft); box-shadow: inset 2px 0 var(--accent); }
 .me-preset-intro { font-size: 13px; color: var(--muted); margin-bottom: 0.75rem; }
@@ -2219,7 +2257,7 @@
 
 /* Rail */
 .me-rail { display: flex; flex-direction: column; gap: 2px; position: sticky; top: calc(var(--island-h) + var(--me-toolbar-h, 60px) + 1rem); align-self: start; max-height: calc(100dvh - var(--island-h) - var(--me-toolbar-h, 60px) - 2rem); overflow-y: auto; overscroll-behavior: contain; }
-.me-rail-item { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.55rem; padding: 0.6rem 0.7rem; border-radius: var(--radius-s); color: var(--muted); text-align: left; transition: background 0.14s var(--ease), color 0.14s var(--ease); }
+.me-rail-item { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.55rem; padding: 0.6rem 0.7rem; border-radius: var(--radius-s); color: var(--muted); text-align: left; transition: background 0.14s var(--ease), color 0.14s var(--ease), transform 0.12s var(--ease); }
 .me-rail-item:hover { background: var(--surface-sunk); color: var(--ink); }
 .me-rail-item[data-active="true"] { background: var(--ink); color: var(--page); }
 .me-rail-mark { display: none; }
@@ -2377,4 +2415,20 @@
   .me-styles-controls { width: 100%; }
   .me-styles-controls .slider { min-width: 80px; flex: 1; }
   .me-sample-inline input { min-width: 100px; flex: 1; }
+}
+
+/* --- Press feedback ------------------------------------------------------- */
+/* Everything that can be pressed answers the press. Wide surfaces give less,
+   so a card does not visibly shrink away from the pointer. A face card holds
+   its own buttons; pressing one of those must not squeeze the whole card. */
+.mode-option:active,
+.me-preset-item:active,
+.me-rail-item:active {
+  transform: scale(0.97);
+}
+.family-toggle:active {
+  transform: scale(0.985);
+}
+.face:active:not(:has(button:active, a:active, summary:active, input:active, label:active)) {
+  transform: scale(0.99);
 }

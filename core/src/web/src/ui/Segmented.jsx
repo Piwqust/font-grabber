@@ -1,9 +1,9 @@
-import { useSlidingIndicator } from "../lib/motion.js";
+import { useActiveClip } from "../lib/motion.js";
 
 /**
- * A segmented control. The active background is one element that springs
- * between options, so the relationship between them stays visible instead of
- * the highlight blinking from place to place.
+ * A segmented control. The active state is a second copy of the options,
+ * drawn active and clipped to the chosen one; the clip slides between
+ * options, so the highlight travels instead of blinking from place to place.
  *
  * @param {{value:string,label:any,title?:string,badge?:any}[]} options
  */
@@ -16,7 +16,7 @@ export function Segmented({
   disabled = false,
   class: className = "",
 }) {
-  const { groupRef, indicatorRef } = useSlidingIndicator(value);
+  const { groupRef, clipRef } = useActiveClip(value);
 
   const onKeyDown = (event) => {
     const index = options.findIndex((option) => option.value === value);
@@ -39,7 +39,6 @@ export function Segmented({
       ref={groupRef}
       onKeyDown={onKeyDown}
     >
-      <span class="segmented-indicator" ref={indicatorRef} aria-hidden="true" />
       {options.map((option) => (
         <button
           key={option.value}
@@ -58,6 +57,18 @@ export function Segmented({
           ) : null}
         </button>
       ))}
+      <span class="segmented-active" aria-hidden="true">
+        <span class="segmented-active-layer" ref={clipRef}>
+          {options.map((option) => (
+            <span key={option.value} class="segmented-option">
+              {option.label}
+              {option.badge != null ? (
+                <span class="segmented-badge">{option.badge}</span>
+              ) : null}
+            </span>
+          ))}
+        </span>
+      </span>
     </div>
   );
 }

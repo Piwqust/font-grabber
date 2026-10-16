@@ -7,6 +7,25 @@ import {
   autoUpdate,
 } from "@floating-ui/dom";
 
+const OPPOSITE = { top: "bottom", bottom: "top", left: "right", right: "left" };
+
+/** The transform origin and entrance offset for a resolved placement. */
+function growFrom(placement) {
+  const [side, align] = placement.split("-");
+  const vertical = side === "top" || side === "bottom";
+  const along = vertical
+    ? align === "start" ? "left" : align === "end" ? "right" : "center"
+    : align === "start" ? "top" : align === "end" ? "bottom" : "center";
+  const origin = vertical
+    ? `${along} ${OPPOSITE[side]}`
+    : `${OPPOSITE[side]} ${along}`;
+  const distance = side === "top" || side === "left" ? "4px" : "-4px";
+  const shift = vertical
+    ? `translateY(${distance})`
+    : `translateX(${distance})`;
+  return { origin, shift };
+}
+
 /**
  * Positions a floating element relative to an anchor.
  *
@@ -41,11 +60,16 @@ export function useFloating({
         flip({ padding }),
         shift({ padding, crossAxis: true }),
       ],
-    }).then(({ x, y }) => {
+    }).then(({ x, y, placement: final }) => {
       floating.style.top = `${y}px`;
       floating.style.left = `${x}px`;
       floating.style.bottom = "auto";
       floating.style.right = "auto";
+      // The panel grows out of its trigger, wherever flip() ended up putting
+      // it, so the entrance reads as coming from the button that was pressed.
+      const { origin, shift } = growFrom(final);
+      floating.style.setProperty("--floating-origin", origin);
+      floating.style.setProperty("--floating-shift", shift);
     });
   }, [placement, offsetPx, padding, strategy]);
 
