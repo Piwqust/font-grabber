@@ -95,6 +95,8 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
             scripts: Vec::new(),
             variable: candidate.variable.unwrap_or(false),
             scan_source: ScanSource::BrowserCss,
+            parts: Vec::new(),
+            css_family: None,
         });
     }
 

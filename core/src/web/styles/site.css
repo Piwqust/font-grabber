@@ -1166,6 +1166,16 @@
   gap: 0.5rem;
   min-width: 0;
 }
+/* Between the faces a page is about and the ones the site loads anyway. */
+.catalog-divider {
+  grid-column: 1 / -1;
+  padding: 2rem 0.75rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  font: 400 11px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
 .catalog-list.layout-grid {
   grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
 }

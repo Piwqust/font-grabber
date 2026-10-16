@@ -124,6 +124,8 @@ pub fn parse_font_face_rule(
         scripts: Vec::new(),
         variable,
         scan_source,
+        parts: Vec::new(),
+        css_family: None,
     }])
 }
 
@@ -134,13 +136,21 @@ pub fn merge_fonts(
     let mut map: HashMap<String, FontCandidate> = HashMap::new();
 
     for font in existing.into_iter().chain(incoming) {
-        let key = font_identity_key(
+        let mut key = font_identity_key(
             &font.family,
             &font.weight,
             &font.style,
             font.stretch.as_deref(),
             font.unicode_range.as_deref(),
         );
+        // Files the page never named are different files, not alternative
+        // formats of one face; the file is all that tells them apart.
+        if font.family == "(Unknown)" {
+            if let Some(source) = font.sources.first() {
+                key.push('|');
+                key.push_str(&source.url);
+            }
+        }
         let variable = font.variable;
         let scan_source = font.scan_source;
         let incoming_sources = font.sources.clone();
@@ -620,6 +630,8 @@ mod tests {
             scripts: vec![],
             variable: false,
             scan_source: ScanSource::StaticCss,
+            parts: Vec::new(),
+            css_family: None,
         };
         let browser_font = FontCandidate {
             id: "browser".into(),
@@ -641,6 +653,8 @@ mod tests {
             scripts: vec![crate::domain::FontScript::Cyrillic],
             variable: true,
             scan_source: ScanSource::BrowserCss,
+            parts: Vec::new(),
+            css_family: None,
         };
 
         let merged = merge_fonts(vec![static_font], vec![browser_font]);

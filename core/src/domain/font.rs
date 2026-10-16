@@ -187,6 +187,14 @@ pub struct FontSource {
     pub format: FontFormat,
 }
 
+/// One more file of a face that a site splits by character set. Downloaded
+/// alongside the candidate's own sources and joined into one font on export.
+#[derive(Debug, Clone, Serialize)]
+pub struct FontPart {
+    pub sources: Vec<FontSource>,
+    pub unicode_range: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct FontCandidate {
     pub id: String,
@@ -199,6 +207,13 @@ pub struct FontCandidate {
     pub scripts: Vec<FontScript>,
     pub variable: bool,
     pub scan_source: ScanSource,
+    /// The rest of the face when the site serves it in pieces; empty otherwise.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<FontPart>,
+    /// The site's own name for the face when `family` was read from the file
+    /// name instead, because the CSS name was an internal alias.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub css_family: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -208,6 +223,14 @@ pub struct CachedFont {
     pub downloaded_format: FontFormat,
     pub source_url: String,
     pub transfer_method: TransferMethod,
+    /// Downloaded pieces from `info.parts`, in the same order.
+    pub parts: Vec<CachedPart>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CachedPart {
+    pub path: PathBuf,
+    pub format: FontFormat,
 }
 
 #[derive(Debug, Clone, Serialize)]

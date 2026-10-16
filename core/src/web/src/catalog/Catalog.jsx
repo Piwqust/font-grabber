@@ -1,3 +1,4 @@
+import { Fragment } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import { useStore, PAGE_SIZE } from "../store.jsx";
 import { hostOf } from "../lib/fonts.js";
@@ -33,6 +34,11 @@ export function Catalog() {
 
   const groups = store.groups;
   const visible = groups.slice(0, store.visibleCount);
+  // A foundry page often preloads its whole catalogue for menus. The faces
+  // the page is about come first; a heading marks where the rest begin.
+  const otherFrom = groups.some((group) => group.onPage)
+    ? visible.findIndex((group) => !group.onPage)
+    : -1;
 
   // `tabindex="-1"` makes this a valid target for the post-scan focus move in
   // App.jsx without adding the region to the tab order.
@@ -56,7 +62,14 @@ export function Catalog() {
       <div class="catalog-body">
         <div class={`catalog-list layout-${store.layout}`} ref={listRef}>
           {visible.length ? (
-            visible.map((group) => <FamilyRow key={group.key} group={group} />)
+            visible.map((group, index) => (
+              <Fragment key={group.key}>
+                {index === otherFrom ? (
+                  <h2 class="catalog-divider">Other fonts this site loads</h2>
+                ) : null}
+                <FamilyRow group={group} />
+              </Fragment>
+            ))
           ) : (
             <EmptyState />
           )}

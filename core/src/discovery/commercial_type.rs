@@ -148,6 +148,8 @@ fn parse(page: &Url, data: &Value) -> Result<Vec<FontCandidate>> {
                 scripts: Vec::new(),
                 variable: false,
                 scan_source: ScanSource::StaticCss,
+                parts: Vec::new(),
+                css_family: None,
             });
         }
     }

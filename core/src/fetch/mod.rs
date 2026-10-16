@@ -7,7 +7,7 @@ use anyhow::Result;
 use futures::{stream, StreamExt};
 
 use crate::{
-    domain::{CachedFont, FontCandidate},
+    domain::{CachedFont, CachedPart, FontCandidate},
     support::{emit_log, http::build_http_client, Logger},
 };
 
@@ -52,15 +52,25 @@ pub async fn download_fonts(
                     Err("Download batch exceeds 128 MiB. Choose fewer files.".into()),
                 );
             }
-            let mut result =
-                http::download_font(client, font.clone(), page_url, cache_dir, restrict_private)
-                    .await
-                    .map_err(|error| error.to_string());
+            let mut result = http::download_font(
+                client.clone(),
+                font.clone(),
+                page_url.clone(),
+                cache_dir.clone(),
+                restrict_private,
+            )
+            .await
+            .map_err(|error| error.to_string());
+            if let Ok(cached) = result {
+                result = attach_parts(&client, cached, &page_url, &cache_dir, restrict_private).await;
+            }
             if restrict_private {
                 if let Ok(cached) = &result {
-                    let size = std::fs::metadata(&cached.cached_path)
+                    let size = std::iter::once(&cached.cached_path)
+                        .chain(cached.parts.iter().map(|part| &part.path))
+                        .filter_map(|path| std::fs::metadata(path).ok())
                         .map(|m| m.len())
-                        .unwrap_or_default();
+                        .sum::<u64>();
                     if budget.fetch_add(size, std::sync::atomic::Ordering::Relaxed) + size
                         > 128 * 1024 * 1024
                     {
@@ -135,6 +145,14 @@ pub async fn download_fonts(
 
         for (index, (font, result)) in fetched.into_iter().enumerate() {
             let http_error = http_errors.get(index).cloned().unwrap_or_default();
+            let result = match result {
+                Ok(cached_font) => {
+                    attach_parts(&client, cached_font, page_url, cache_dir, restrict_private)
+                        .await
+                        .map_err(|error| format!("browser: {error}"))
+                }
+                Err(error) => Err(error),
+            };
             match result {
                 Ok(cached_font) => cached.push(cached_font),
                 Err(browser_error) => {
@@ -160,6 +178,41 @@ pub async fn download_fonts(
         failures,
         failure_details,
     })
+}
+
+/// Downloads the other pieces of a face the site serves split. A missing piece
+/// fails the face: a font without its extended characters would look complete
+/// and not be.
+async fn attach_parts(
+    client: &reqwest::Client,
+    mut cached: CachedFont,
+    page_url: &str,
+    cache_dir: &Path,
+    restrict_private: bool,
+) -> std::result::Result<CachedFont, String> {
+    let total = cached.info.parts.len() + 1;
+    for (index, part) in cached.info.parts.clone().into_iter().enumerate() {
+        let mut piece = cached.info.clone();
+        piece.id = format!("{}#part{}", piece.id, index + 2);
+        piece.sources = part.sources;
+        piece.parts = Vec::new();
+        let downloaded = http::download_font(
+            client.clone(),
+            piece,
+            page_url.to_string(),
+            cache_dir.to_path_buf(),
+            restrict_private,
+        )
+        .await
+        .map_err(|error| {
+            format!("piece {} of {total} could not be downloaded: {error}", index + 2)
+        })?;
+        cached.parts.push(CachedPart {
+            path: downloaded.cached_path,
+            format: downloaded.downloaded_format,
+        });
+    }
+    Ok(cached)
 }
 
 fn failure_line(font: &FontCandidate, detail: impl Into<String>) -> String {

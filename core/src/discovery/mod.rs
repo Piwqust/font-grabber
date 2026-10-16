@@ -1,3 +1,4 @@
+mod assemble;
 mod commercial_type;
 mod headless;
 mod parser;
@@ -92,6 +93,7 @@ pub async fn scan_with_progress(
     }
 
     stage(ScanStage::Organizing);
+    fonts = assemble::assemble(fonts);
     if request.enrich_scripts {
         warnings.extend(enrich_font_scripts(&mut fonts, &request.page_url, logger.clone()).await);
     } else {

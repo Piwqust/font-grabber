@@ -26,7 +26,10 @@ export function FaceCard({ font }) {
   const source = font.sources?.[0];
   const status = store.downloadStates[font.id];
   const weight = font.variable ? font.weight : faceWeight(font);
-  const info = [weight, font.stretch, source?.format].filter(Boolean);
+  // A face the site serves in pieces downloads as one font; say so, since
+  // the preview can only show the first piece.
+  const pieces = font.parts?.length ? `joined from ${font.parts.length + 1} files` : null;
+  const info = [weight, font.stretch, source?.format, pieces].filter(Boolean);
   const action = downloadLabel(status, store.delivery);
 
   const onCardClick = (event) => {

@@ -176,6 +176,8 @@ mod tests {
             scripts: vec![],
             variable: false,
             scan_source: ScanSource::StaticCss,
+            parts: Vec::new(),
+            css_family: None,
         };
         let drafts = cli_name_drafts(Some("Acme".into()), None, &[font]).unwrap();
         assert_eq!(drafts["light"].family, "Acme");

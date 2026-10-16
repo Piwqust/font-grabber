@@ -128,6 +128,7 @@ fn fetch_one(
                     downloaded_format: detected_format,
                     source_url: source.url.clone(),
                     transfer_method: TransferMethod::Browser,
+                    parts: Vec::new(),
                 });
             }
             Err(error) => last_error = Some(error),

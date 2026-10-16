@@ -58,6 +58,7 @@ pub async fn download_font(
                         downloaded_format: detected_format,
                         source_url: source.url.clone(),
                         transfer_method: TransferMethod::Http,
+                        parts: Vec::new(),
                     });
                 }
                 Err(error) => last_error = Some(error.into()),

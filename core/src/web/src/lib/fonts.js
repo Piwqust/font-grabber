@@ -277,6 +277,7 @@ export function matchesFilter(font, query) {
   if (
     `${familyName(font)} ${styleLabel(font)}`.toLowerCase().includes(query) ||
     (font.family || "").toLowerCase().includes(query) ||
+    (font.css_family || "").toLowerCase().includes(query) ||
     styleLabel(font).toLowerCase().includes(query)
   )
     return true;

@@ -131,7 +131,15 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
                 continue;
             }
         }
-        let response = match client.get(&stylesheet_url).send().await {
+        // Font CDNs commonly refuse requests that do not come from their own
+        // site (403 without a Referer), exactly as they would a hotlink.
+        let response = match client
+            .get(&stylesheet_url)
+            .header(reqwest::header::REFERER, page_url)
+            .header(reqwest::header::ACCEPT, "text/css,*/*;q=0.1")
+            .send()
+            .await
+        {
             Ok(response) => response,
             Err(error) => {
                 warnings.push(format!(

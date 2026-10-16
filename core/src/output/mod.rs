@@ -177,6 +177,8 @@ mod tests {
                 scripts: vec![],
                 variable: false,
                 scan_source: ScanSource::StaticCss,
+                parts: Vec::new(),
+                css_family: None,
             },
             data: vec![],
             output_format: OutputFormat::Ttf,

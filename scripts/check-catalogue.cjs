@@ -57,6 +57,8 @@ function check(value, label) { assert.ok(value, label); checks.push(label); }
     assert.deepEqual(await mono.locator(".face-style").allTextContents(), expected);
     checks.push("Weights and obliques are labelled correctly and ordered from Thin to Black");
     await mono.getByRole("checkbox", { name: "Select matching faces in GT Mechanik Mono", exact: true }).check();
+    // The selection folds after three files so Download stays in view; open it to count.
+    await page.locator(".selection-more").click();
     check(await page.locator(".selection-file").count() === 14, "The family checkbox selects exactly 14 Mono faces");
     check((await page.locator(".selection-file-name").allTextContents()).every((name) =>
       name.startsWith("GT Mechanik Mono ")), "The selection uses readable family and style names");

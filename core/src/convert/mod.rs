@@ -1,3 +1,4 @@
+mod merge;
 mod name_repair;
 
 use std::{collections::HashMap, fs};
@@ -64,7 +65,14 @@ pub fn inspect_names(bytes: &[u8]) -> Result<NameSet> {
     let sfnt = decompress_to_sfnt(bytes, FontFormat::sniff(bytes))?;
     Face::parse(&sfnt, 0).context("Could not parse font")?;
     let names = name_repair::inspect_sfnt_names(&sfnt)?;
-    let get = |id| names.get(&id).cloned();
+    // Fonts that had their names scrubbed for the web keep a placeholder such
+    // as "." — that is no name, and callers fall back to what the scan knows.
+    let get = |id| {
+        names
+            .get(&id)
+            .filter(|value| value.chars().any(char::is_alphanumeric))
+            .cloned()
+    };
     Ok(NameSet {
         family: get(16).or_else(|| get(1)),
         subfamily: get(17).or_else(|| get(2)),
@@ -147,18 +155,19 @@ fn convert_fonts_within(
         );
 
         let draft = drafts.and_then(|map| map.get(&cached.info.id));
-        let result = convert_font(cached, draft).and_then(|font| {
+        let result = convert_font(cached, draft).and_then(|fonts| {
             // Over-budget fonts fail individually so the ones already converted still ship.
+            let size: usize = fonts.iter().map(|font| font.data.len()).sum();
             anyhow::ensure!(
-                total_bytes + font.data.len() <= max_total_bytes,
+                total_bytes + size <= max_total_bytes,
                 "Expanded fonts exceed 128 MiB. Choose fewer files."
             );
-            Ok(font)
+            Ok(fonts)
         });
         match result {
-            Ok(font) => {
-                total_bytes += font.data.len();
-                converted.push(font);
+            Ok(fonts) => {
+                total_bytes += fonts.iter().map(|font| font.data.len()).sum::<usize>();
+                converted.extend(fonts);
             }
             Err(error) => {
                 failure_details.push((cached.info.id.clone(), error.to_string()));
@@ -177,14 +186,72 @@ fn convert_fonts_within(
     })
 }
 
-fn convert_font(cached: &CachedFont, draft: Option<&NameDraft>) -> Result<ConvertedFont> {
+/// The face as one font: its own file with any pieces the site split off
+/// joined back on. When the pieces cannot be joined they come back as well,
+/// so the caller can still deliver every character.
+pub fn load_joined_sfnt(cached: &CachedFont) -> Result<(Vec<u8>, Vec<Vec<u8>>)> {
     let raw = fs::read(&cached.cached_path).with_context(|| {
         format!(
             "Failed to read cached font {}",
             cached.cached_path.display()
         )
     })?;
-    let sfnt = decompress_to_sfnt(&raw, cached.downloaded_format)?;
+    let base = decompress_to_sfnt(&raw, cached.downloaded_format)?;
+    if cached.parts.is_empty() {
+        return Ok((base, Vec::new()));
+    }
+    let pieces = cached
+        .parts
+        .iter()
+        .map(|part| {
+            let raw = fs::read(&part.path)
+                .with_context(|| format!("Failed to read {}", part.path.display()))?;
+            decompress_to_sfnt(&raw, part.format)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(match merge::merge_sfnts(&base, &pieces) {
+        Ok(joined) => (joined, Vec::new()),
+        Err(_) => (base, pieces),
+    })
+}
+
+fn convert_font(cached: &CachedFont, draft: Option<&NameDraft>) -> Result<Vec<ConvertedFont>> {
+    let (sfnt, leftovers) = load_joined_sfnt(cached)?;
+    let mut fonts = vec![convert_sfnt(sfnt, cached, draft)?];
+    // Pieces that could not be joined ship as families of their own, named so
+    // they install beside the main face instead of replacing it.
+    for (index, piece) in leftovers.into_iter().enumerate() {
+        let mut info = cached.info.clone();
+        let family = draft
+            .map(|draft| draft.family.trim())
+            .filter(|family| !family.is_empty())
+            .unwrap_or(&info.family)
+            .to_string();
+        info.id = format!("{}#part{}", info.id, index + 2);
+        info.family = format!("{family} Part {}", index + 2);
+        let named = name_repair::apply_name_draft(
+            &piece,
+            &NameDraft {
+                family: info.family.clone(),
+                subfamily: subfamily_from_weight_style(&info.weight, &info.style),
+                ..NameDraft::default()
+            },
+        )?;
+        let piece_cached = CachedFont {
+            info,
+            parts: Vec::new(),
+            ..cached.clone()
+        };
+        fonts.push(analyze_font(named, &piece_cached)?);
+    }
+    Ok(fonts)
+}
+
+fn convert_sfnt(
+    sfnt: Vec<u8>,
+    cached: &CachedFont,
+    draft: Option<&NameDraft>,
+) -> Result<ConvertedFont> {
     let resolved = draft.map(|draft| resolve_draft_names(&sfnt, draft, &cached.info));
     let draft = resolved.as_ref();
     let named = if let Some(draft) = draft {
@@ -454,12 +521,55 @@ pub(crate) mod tests {
                 scripts: vec![],
                 variable: false,
                 scan_source: crate::domain::ScanSource::StaticCss,
+                parts: Vec::new(),
+                css_family: None,
             },
             cached_path: path,
             downloaded_format: FontFormat::Woff2,
             source_url: "https://example.com/geist.woff2".into(),
             transfer_method: crate::domain::TransferMethod::Http,
+            parts: Vec::new(),
         }
+    }
+
+    fn cached_pieces(directory: &std::path::Path, base: &[u8], piece: &[u8]) -> CachedFont {
+        let mut cached = cached_geist(directory, "split", "400");
+        fs::write(&cached.cached_path, base).unwrap();
+        let piece_path = directory.join("split-2.woff2");
+        fs::write(&piece_path, piece).unwrap();
+        cached.parts.push(crate::domain::CachedPart {
+            path: piece_path,
+            format: FontFormat::Woff2,
+        });
+        cached
+    }
+
+    #[test]
+    fn pieces_of_a_split_face_export_as_one_font() {
+        let directory = tempfile::tempdir().unwrap();
+        let cached = cached_pieces(
+            directory.path(),
+            include_bytes!("fixtures/tt-core.woff2"),
+            include_bytes!("fixtures/tt-ext.woff2"),
+        );
+        let fonts = convert_font(&cached, None).unwrap();
+        assert_eq!(fonts.len(), 1);
+        let face = Face::parse(&fonts[0].data, 0).unwrap();
+        assert!(face.glyph_index('A').is_some() && face.glyph_index('é').is_some());
+    }
+
+    #[test]
+    fn pieces_that_cannot_be_joined_still_ship_every_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let cached = cached_pieces(
+            directory.path(),
+            include_bytes!("fixtures/cff-core.woff2"),
+            include_bytes!("fixtures/cff-ext.woff2"),
+        );
+        let fonts = convert_font(&cached, None).unwrap();
+        assert_eq!(fonts.len(), 2);
+        let names = inspect_names(&fonts[1].data).unwrap();
+        assert!(names.family.unwrap().ends_with("Part 2"));
     }
 
     #[test]
@@ -490,7 +600,7 @@ pub(crate) mod tests {
             family: "Renamed".into(),
             ..NameDraft::default()
         };
-        let font = convert_font(&cached, Some(&family_only)).unwrap();
+        let font = convert_font(&cached, Some(&family_only)).unwrap().remove(0);
         let names = inspect_names(&font.data).unwrap();
         assert_eq!(names.family.as_deref(), Some("Renamed"));
         assert_eq!(names.subfamily, original.subfamily);
@@ -499,7 +609,7 @@ pub(crate) mod tests {
             subfamily: "Condensed".into(),
             ..NameDraft::default()
         };
-        let font = convert_font(&cached, Some(&subfamily_only)).unwrap();
+        let font = convert_font(&cached, Some(&subfamily_only)).unwrap().remove(0);
         let names = inspect_names(&font.data).unwrap();
         assert_eq!(names.family, original.family);
         assert_eq!(names.subfamily.as_deref(), Some("Condensed"));

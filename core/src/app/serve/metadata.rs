@@ -245,11 +245,14 @@ async fn inspect_request(state: &AppState, body: InspectBody) -> Result<serde_js
                         scripts: vec![],
                         variable: false,
                         scan_source: ScanSource::StaticCss,
+                        parts: Vec::new(),
+                        css_family: None,
                     },
                     cached_path,
                     downloaded_format: FontFormat::sniff(&bytes),
                     source_url: String::new(),
                     transfer_method: TransferMethod::Http,
+                    parts: Vec::new(),
                 });
             }
             (
@@ -269,7 +272,20 @@ async fn inspect_request(state: &AppState, body: InspectBody) -> Result<serde_js
     for font in &upload.fonts {
         let inspected = (|| -> Result<serde_json::Value> {
             let bytes = std::fs::read(&font.cached_path)?;
-            let names = convert::inspect_names(&bytes)?;
+            let mut names = convert::inspect_names(&bytes)?;
+            // A scanned file with its names scrubbed is named by the scan,
+            // which read the name off the file's address.
+            if !is_upload {
+                if names.family.is_none() {
+                    names.family = Some(font.info.family.clone());
+                }
+                if names.subfamily.is_none() {
+                    names.subfamily = Some(convert::subfamily_from_weight_style(
+                        &font.info.weight,
+                        &font.info.style,
+                    ));
+                }
+            }
             let sfnt = convert::decompress_to_sfnt(&bytes, font.downloaded_format)?;
             let face = ttf_parser::Face::parse(&sfnt, 0).context("Could not parse font")?;
             let axes: Vec<_> = face.variation_axes().into_iter().map(|axis| serde_json::json!({

@@ -431,9 +431,15 @@ async fn inspect_coverage(state: &AppState, body: CoverageBody) -> Result<serde_
         let result = (|| -> Result<Vec<char>> {
             let font = font
                 .ok_or_else(|| anyhow::anyhow!("Could not fetch this font. Try scanning again."))?;
-            let bytes = std::fs::read(&font.cached_path)?;
-            let sfnt = convert::decompress_to_sfnt(&bytes, font.downloaded_format)?;
-            missing_characters(&sfnt, &body.text)
+            // Pieces of a split face are joined first, so characters that live
+            // in the extension file are not reported missing.
+            let (sfnt, leftovers) = convert::load_joined_sfnt(font)?;
+            let mut missing = missing_characters(&sfnt, &body.text)?;
+            for piece in &leftovers {
+                let text: String = missing.iter().collect();
+                missing = missing_characters(piece, &text)?;
+            }
+            Ok(missing)
         })();
         match result {
             Ok(missing) => {

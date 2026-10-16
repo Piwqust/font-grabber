@@ -1068,6 +1068,8 @@ mod tests {
             scripts: Vec::new(),
             variable: false,
             scan_source: crate::domain::ScanSource::StaticCss,
+            parts: Vec::new(),
+            css_family: None,
         });
         remember_scan(&state, "fixture".into(), scan).await;
         assert!(
