@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { useStore } from "../store.jsx";
-import { hostOf, DEFAULT_SAMPLE } from "../lib/fonts.js";
+import { hostOf, DEFAULT_SAMPLE, subsetLabel } from "../lib/fonts.js";
 import { Preview } from "../catalog/Preview.jsx";
 import { Button } from "../ui/Button.jsx";
 import { Slider } from "../ui/Slider.jsx";
@@ -86,6 +86,7 @@ export function MetadataEditor() {
         </div>
         <span class="me-source">{origin} <span aria-hidden="true">/</span> {total} {total === 1 ? "file" : "files"}</span>
       </div>
+      <DraftNotice />
       <section id="font-details" aria-label="Font details">
         <RenamePanel family={family} total={total} issues={issues} families={families} />
         <Issues issues={issues} />
@@ -206,6 +207,8 @@ function Face({ font, issues }) {
   const ext = font.format === "woff2" ? "otf" : font.format || "otf";
   const sample = store.sampleText;
   const preview = meta.previews[font.id];
+  // Files split by script share every name; the script is what tells them apart.
+  const subset = subsetLabel(preview);
 
   const toggleManual = (on) =>
     store.setFaceField(
@@ -238,6 +241,7 @@ function Face({ font, issues }) {
       <div class="me-face-row">
         <div class="me-face-row-meta">
           <span class="me-face-style">{label}</span>
+          {subset ? <span class="me-face-subset">{subset}</span> : null}
           <span class="me-style-format">{font.format?.toUpperCase()}</span>
           {differs ? <span class="me-face-dot" title="Changed" /> : null}
         </div>
@@ -319,8 +323,8 @@ function Records({ issues }) {
   return (
     <div class="me-records sp-records" id="meta-panel-records">
       <p class="me-records-note">
-        {fonts.length === 1 ? "Applies to this file." : `Applies to all ${fonts.length} files.`}
-        {" "}Untouched fields keep their original values.
+        {/* The name card above already says how many files this covers. */}
+        Fields you do not touch keep their original values.
       </p>
       <section class="me-detail-section" aria-labelledby="meta-authors-title">
         <div class="me-detail-heading">
@@ -394,6 +398,48 @@ function Failures() {
       </ul>
     </section>
   );
+}
+
+/* -- Draft notices -------------------------------------------------------- */
+
+/**
+ * The two moments a draft needs a word: changes from an earlier visit have
+ * come back, or Back was pressed on local files that have not been
+ * downloaded yet and would be lost.
+ */
+function DraftNotice() {
+  const store = useStore();
+  const meta = store.metadata;
+  const stayRef = useRef(null);
+
+  useEffect(() => {
+    if (meta.confirmLeave) stayRef.current?.focus();
+  }, [meta.confirmLeave]);
+
+  if (meta.confirmLeave) {
+    return (
+      <div class="me-notice me-notice-warning" role="alertdialog" aria-labelledby="me-leave-title">
+        <p id="me-leave-title">
+          <strong>Leave without downloading?</strong> Your changes to these files will be lost.
+        </p>
+        <div class="me-notice-actions">
+          <Button ref={stayRef} size="s" variant="solid" onClick={store.keepEditing}>Keep editing</Button>
+          <Button size="s" variant="quiet" onClick={() => store.closeMetadata({ force: true })}>Leave</Button>
+        </div>
+      </div>
+    );
+  }
+  if (meta.restoredDraft) {
+    return (
+      <div class="me-notice" role="status">
+        <p>Your earlier changes to these files are back.</p>
+        <div class="me-notice-actions">
+          <Button size="s" variant="quiet" icon="undo" onClick={store.discardRestoredDraft}>Start over</Button>
+        </div>
+      </div>
+    );
+  }
+  return null;
 }
 
 /* -- Footer --------------------------------------------------------------- */

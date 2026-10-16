@@ -17,7 +17,9 @@ import {
   DEFAULT_SAMPLE,
   collectionLabel,
   familyGroups,
+  compareFaces,
   familyKey,
+  hostOf,
   matchesFilter,
   normalizeUrl,
   prepareCatalogFonts,
@@ -29,7 +31,9 @@ import {
   forgetSite,
   historyEntries,
   loadMetadataSession,
+  loadParkedDraft,
   loadSession,
+  parkMetadataDraft,
   readLocal,
   rememberSite,
   saveMetadataSession,
@@ -72,7 +76,28 @@ const emptyMetadata = {
   applying: false,
   status: null,
   report: null,
+  confirmLeave: false, // asked before leaving unsaved changes to local files
+  restoredDraft: false, // changes from an earlier visit were brought back
 };
+
+/** Whether anything has been typed into the editor. */
+function hasDraftChanges(meta) {
+  return (
+    Object.keys(meta.familyDraft || {}).length > 0 ||
+    Object.values(meta.faceDrafts || {}).some(
+      (draft) => draft && Object.keys(draft).length > 0,
+    )
+  );
+}
+
+/** Identifies a set of scanned files, so a parked draft finds its way back. */
+function draftKey(source) {
+  if (source?.kind !== "scan") return null;
+  return `${source.url}|${[...source.ids].sort().join(",")}`;
+}
+
+const VIEW_RANK = { landing: 0, catalog: 1, editor: 2 };
+const historyUrl = () => location.pathname + location.search;
 
 /**
  * Previews for a draft restored from sessionStorage. Only a scan can be
@@ -324,11 +349,15 @@ export function StoreProvider({ children }) {
       let url;
       try {
         url = normalizeUrl(raw);
-      } catch {
+      } catch (error) {
         patch({
           status: {
-            message: "Enter a website address, such as example.com.",
+            message:
+              error.message === "empty"
+                ? "Enter a website address, such as example.com."
+                : "That doesn't look like a website address. Try something like example.com.",
             kind: "error",
+            field: true,
           },
           canRetry: false,
         });
@@ -361,6 +390,14 @@ export function StoreProvider({ children }) {
           onStage: (message) => patch({ status: { message, kind: "busy" } }),
         });
         const fonts = prepareCatalogFonts(report.fonts || []);
+        // Both ways of reading the page failing to even open it means the
+        // site is missing or down, which is a different problem from a page
+        // that opened and simply had no fonts to give.
+        const warnings = report.warnings || [];
+        const unreachable =
+          !fonts.length &&
+          !report.used_browser &&
+          warnings.some((w) => w.startsWith("Static scan failed: Failed to fetch page"));
         coverageRef.current++;
         resetPreviews();
         patch({
@@ -383,8 +420,14 @@ export function StoreProvider({ children }) {
           savedFolder: "",
           warnings: report.warnings || [],
           history: rememberSite(url, mode, fonts.length),
-          showExtensionHelp: fonts.length === 0,
-          status: fonts.length
+          showExtensionHelp: fonts.length === 0 && !unreachable,
+          canRetry: unreachable,
+          status: unreachable
+            ? {
+                message: `Could not open ${hostOf(url)}. Check the address: the site may not exist, or it may be down right now.`,
+                kind: "error",
+              }
+            : fonts.length
             ? {
                 message: `Found ${fonts.length} face${fonts.length === 1 ? "" : "s"}${
                   report.used_browser ? " via browser rendering" : ""
@@ -415,7 +458,9 @@ export function StoreProvider({ children }) {
         else
           patch({
             status: {
-              message: `Could not scan this page. Check the address and retry. ${error.message}`,
+              message: /^Invalid URL/.test(error.message)
+                ? "That doesn't look like a website address. Try something like example.com."
+                : `Could not scan this page. ${error.message} Check the address and try again.`,
               kind: "error",
             },
             canRetry: true,
@@ -774,10 +819,36 @@ export function StoreProvider({ children }) {
   /** Turns an inspect response into the slice the form reads. */
   const receiveInspection = useCallback(
     (data, requested) => {
-      const fonts = data.fonts || [];
+      // Scanned files are listed in the catalogue's order, so a family split
+      // by script reads Latin first here too.
+      const previews = latest.current.metadata.previews || {};
+      const fonts = (data.fonts || [])
+        .slice()
+        .sort((a, b) =>
+          previews[a.id] && previews[b.id]
+            ? compareFaces(previews[a.id], previews[b.id])
+            : 0,
+        );
       const failures = data.failures || [];
       const total = fonts.length + failures.length || requested;
+      // Changes typed into these same files before the editor was left are
+      // put back, for the faces that are still here.
+      const parked = loadParkedDraft();
+      const key = draftKey(latest.current.metadata.source);
+      let restoredDrafts = null;
+      if (parked && key && parked.key === key && fonts.length) {
+        const ids = new Set(fonts.map((font) => font.id));
+        restoredDrafts = {
+          familyDraft: parked.familyDraft || {},
+          faceDrafts: Object.fromEntries(
+            Object.entries(parked.faceDrafts || {}).filter(([id]) => ids.has(id)),
+          ),
+          restoredDraft: true,
+        };
+        parkMetadataDraft(null);
+      }
       patchMetadata({
+        ...restoredDrafts,
         fonts,
         failures,
         uploadId: data.upload_id || null,
@@ -1095,8 +1166,37 @@ export function StoreProvider({ children }) {
     [patchMetadata],
   );
 
-  const closeMetadata = useCallback(() => {
-    if (latest.current.metadata.applying) return;
+  /**
+   * Leaves the editor. Changes to scanned files are parked and come back when
+   * the same files are opened again. Local files cannot be reopened from
+   * memory, so leaving them with unsaved changes asks first; `force` is the
+   * answer. Returns whether the editor actually closed.
+   */
+  const closeMetadata = useCallback(({ force = false } = {}) => {
+    const meta = latest.current.metadata;
+    if (meta.applying) return false;
+    const changed = hasDraftChanges(meta);
+    if (changed && meta.source?.kind === "upload" && !meta.report && !force) {
+      patchMetadata({ confirmLeave: true });
+      return false;
+    }
+    const key = draftKey(meta.source);
+    if (key && meta.fonts.length) {
+      if (changed && !meta.report) {
+        parkMetadataDraft({
+          key,
+          familyDraft: meta.familyDraft,
+          faceDrafts: meta.faceDrafts,
+        });
+        patch({
+          status: {
+            message:
+              "Your font changes are kept. Open Customize font with the same files to continue.",
+            kind: "",
+          },
+        });
+      } else if (loadParkedDraft()?.key === key) parkMetadataDraft(null);
+    }
     cancelInspect();
     if (["#font-details", "#font-styles"].includes(location.hash)) {
       history.replaceState(history.state, "", location.pathname + location.search);
@@ -1128,7 +1228,97 @@ export function StoreProvider({ children }) {
       else if (--tries > 0) requestAnimationFrame(restore);
     };
     requestAnimationFrame(restore);
-  }, [cancelInspect, releaseUploads, patch]);
+    return true;
+  }, [cancelInspect, releaseUploads, patch, patchMetadata]);
+
+  /** Throws away changes that were brought back from an earlier visit. */
+  const discardRestoredDraft = useCallback(
+    () => patchMetadata({ familyDraft: {}, faceDrafts: {}, restoredDraft: false }),
+    [patchMetadata],
+  );
+  const keepEditing = useCallback(
+    () => patchMetadata({ confirmLeave: false }),
+    [patchMetadata],
+  );
+
+  // -- Browser history -------------------------------------------------------
+  // The three screens share one address, so the history entries carry which
+  // screen they stand for. Going deeper pushes an entry; going back out by a
+  // button walks back over the entry it pushed, so the browser's Back button
+  // and the page's own buttons always agree on where "back" is.
+  const view = state.metadata.open
+    ? "editor"
+    : state.fonts.length
+      ? "catalog"
+      : "landing";
+  const lastView = useRef(null);
+  const fromPop = useRef(false);
+  const skipPop = useRef(0);
+  useEffect(() => {
+    const previous = lastView.current;
+    lastView.current = view;
+    if (previous === null || !restored.current) {
+      if (!history.state?.fount)
+        history.replaceState({ ...history.state, fount: view }, "");
+      return;
+    }
+    if (previous === view) return;
+    if (fromPop.current) {
+      fromPop.current = false;
+      return;
+    }
+    // A reload restores the screen its entry already stands for.
+    if (history.state?.fount === view) return;
+    if (VIEW_RANK[view] > VIEW_RANK[previous]) {
+      history.pushState({ fount: view }, "", historyUrl());
+    } else if (history.state?.fount === previous) {
+      skipPop.current += 1;
+      history.back();
+    } else {
+      history.replaceState({ fount: view }, "", historyUrl());
+    }
+  }, [view]);
+
+  useEffect(() => {
+    const onPop = (event) => {
+      const current = lastView.current;
+      if (skipPop.current) {
+        // Our own step back. It may land on a deeper entry than the screen
+        // now showing (the logo leaves the editor and the catalogue at once).
+        skipPop.current -= 1;
+        if (event.state?.fount !== current)
+          history.replaceState({ fount: current }, "", historyUrl());
+        return;
+      }
+      // In-page anchors inside the editor make entries of their own.
+      if (!event.state?.fount && /^#font-/.test(location.hash)) return;
+      const target = event.state?.fount || "landing";
+      if (target === current) return;
+      if (current === "editor") {
+        fromPop.current = true;
+        if (!closeMetadata()) {
+          fromPop.current = false;
+          history.pushState({ fount: "editor" }, "", historyUrl());
+          return;
+        }
+        if (target === "landing") clearResults();
+        return;
+      }
+      if (current === "catalog" && target === "landing") {
+        if (latest.current.scanning || latest.current.grabbing) {
+          history.pushState({ fount: "catalog" }, "", historyUrl());
+          return;
+        }
+        fromPop.current = true;
+        clearResults();
+        return;
+      }
+      // Forward into a screen that no longer exists keeps the entry honest.
+      history.replaceState({ fount: current }, "", historyUrl());
+    };
+    addEventListener("popstate", onPop);
+    return () => removeEventListener("popstate", onPop);
+  }, [closeMetadata, clearResults]);
 
   // Changing the preview text invalidates a coverage run made against the old text.
   const setSample = useCallback(
@@ -1179,6 +1369,8 @@ export function StoreProvider({ children }) {
     retryMetadata,
     editMetadataAgain,
     closeMetadata,
+    discardRestoredDraft,
+    keepEditing,
     forgetSite: (url) => patch({ history: forgetSite(url) }),
     clearHistory: () => patch({ history: clearHistory() }),
   };

@@ -40,21 +40,16 @@ export function ScanForm({ compact = false }) {
 
   const submit = (event) => {
     event.preventDefault();
-    if (!store.url.trim()) {
-      setInvalid(true);
-      inputRef.current?.focus();
-      return;
-    }
     setInvalid(false);
     store.runScan();
   };
 
+  // An address problem is shown on the field as well as said in words.
   useEffect(() => {
-    if (
-      store.status?.kind === "error" &&
-      store.status.message.startsWith("Enter a website")
-    )
+    if (store.status?.kind === "error" && store.status.field) {
       setInvalid(true);
+      inputRef.current?.focus();
+    }
   }, [store.status]);
 
   return (
@@ -82,7 +77,7 @@ export function ScanForm({ compact = false }) {
           trailing={<ModeMenu compact={compact} />}
         />
         <Button
-          variant="solid"
+          variant={compact ? "outline" : "solid"}
           size={compact ? "m" : "l"}
           type="submit"
           aria-busy={store.scanning ? "true" : undefined}
@@ -230,7 +225,7 @@ function ScanStatus() {
   return (
     <div class="scan-feedback">
       {status ? (
-        <p class={`status status-${status.kind || "plain"}`} role="status">
+        <p class={`status status-${status.kind || "plain"}`} role={status.kind === "error" ? "alert" : "status"}>
           {status.message}
         </p>
       ) : null}

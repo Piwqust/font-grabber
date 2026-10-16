@@ -51,23 +51,27 @@ export function FamilyRow({ group }) {
           onChange={(next) => store.toggleFamily(group.key, next)}
         />
 
-        <button
-          type="button"
-          class="family-toggle"
-          aria-expanded={open}
-          onClick={() => store.toggleExpanded(group.key)}
-        >
-          <Icon name="chevronRight" size={16} class="family-chevron" />
-          <span class="family-name">{group.name}</span>
-          <span class="family-meta">
-            {group.fonts.length} {group.fonts.length === 1 ? "face" : "faces"}
-            {group.fonts.length !== allFaces.length
-              ? ` of ${allFaces.length}`
-              : ""}
-            {selectedCount ? ` · ${selectedCount} selected` : ""}
-          </span>
-          {group.onPage ? <span class="family-badge">On this page</span> : null}
-        </button>
+        {/* The family name is a heading, so the catalogue can be walked by
+            family with a screen reader, and the faces under it are h3s. */}
+        <h2 class="family-title">
+          <button
+            type="button"
+            class="family-toggle"
+            aria-expanded={open}
+            onClick={() => store.toggleExpanded(group.key)}
+          >
+            <Icon name="chevronRight" size={16} class="family-chevron" />
+            <span class="family-name">{group.name}</span>
+            <span class="family-meta">
+              {group.fonts.length} {group.fonts.length === 1 ? "face" : "faces"}
+              {group.fonts.length !== allFaces.length
+                ? ` of ${allFaces.length}`
+                : ""}
+              {selectedCount ? ` · ${selectedCount} selected` : ""}
+            </span>
+            {group.onPage ? <span class="family-badge">On this page</span> : null}
+          </button>
+        </h2>
 
         <Button
           size="s"

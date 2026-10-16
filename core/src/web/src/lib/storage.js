@@ -164,8 +164,31 @@ export function loadSession() {
 
 const METADATA_KEY = "fount-metadata-v1";
 
+/* A draft left behind when the editor is closed before downloading. Opening
+   the same files again brings it back, so leaving the editor is never how
+   typed changes get lost. One is kept: it belongs to the last files edited. */
+const PARKED_KEY = "fount-metadata-parked-v1";
+
+export function parkMetadataDraft(entry) {
+  try {
+    if (!entry) sessionStorage.removeItem(PARKED_KEY);
+    else sessionStorage.setItem(PARKED_KEY, JSON.stringify(entry));
+  } catch {
+    /* Without storage the draft simply is not kept. */
+  }
+}
+
+export function loadParkedDraft() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(PARKED_KEY));
+    return saved && typeof saved.key === "string" ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
 export function clearPrivateSession() {
-  for (const key of [SESSION_KEY, METADATA_KEY, HISTORY_KEY]) {
+  for (const key of [SESSION_KEY, METADATA_KEY, PARKED_KEY, HISTORY_KEY]) {
     try { sessionStorage.removeItem(key); } catch {}
   }
   try { localStorage.removeItem(HISTORY_KEY); } catch {}

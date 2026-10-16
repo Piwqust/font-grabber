@@ -12,13 +12,15 @@ export function Preview({ font, text, class: className = "" }) {
       <p
         ref={ref}
         class={`preview is-${state}`}
+        aria-busy={state === "loading" ? "true" : undefined}
         style={
           state === "ready"
             ? `font-family:"${previewFamily(font.id)}", serif`
             : undefined
         }
       >
-        {text}
+        {/* Hidden while loading, when a placeholder bar stands in for it. */}
+        <span class="preview-text">{text}</span>
       </p>
       {state === "failed" ? (
         <p class="preview-note">Preview unavailable. Fallback font shown.</p>

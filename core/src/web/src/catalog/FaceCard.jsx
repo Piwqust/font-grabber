@@ -46,7 +46,7 @@ export function FaceCard({ font }) {
     >
       <div class="face-head">
         <div class="face-id">
-          <h4 class="face-family">{family}</h4>
+          <h3 class="face-family">{family}</h3>
           <span class="face-style">{style}</span>
         </div>
         <Checkbox

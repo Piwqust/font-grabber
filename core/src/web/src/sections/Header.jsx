@@ -113,7 +113,7 @@ export function Header() {
   const home = (event) => {
     event.preventDefault();
     if (store.metadata.applying) return;
-    if (editing) store.closeMetadata();
+    if (editing && !store.closeMetadata()) return;
     store.clearResults();
     scrollTo({ top: 0, behavior: "instant" });
   };
@@ -163,7 +163,7 @@ export function Header() {
       <div class="island-start">
         {editing ? (
           <Button id="customize-back" variant="quiet" size="s" icon="arrowLeft"
-            disabled={store.metadata.applying} onClick={store.closeMetadata}>Back</Button>
+            disabled={store.metadata.applying} onClick={() => store.closeMetadata()}>Back</Button>
         ) : null}
         <a class="wordmark" href="/" onClick={home} aria-label="Fount home">
           <Mark size={26} /><span>Fount</span>

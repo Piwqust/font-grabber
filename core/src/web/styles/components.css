@@ -722,8 +722,32 @@ button.segmented-option:active:not(:disabled) {
   overflow-wrap: anywhere;
   transition: opacity 0.3s var(--ease);
 }
+/* While the face loads, the line is a quiet placeholder bar: pale text in a
+   fallback font reads as the real font being grey. The text keeps its place
+   but is hidden, so the bar is exactly as tall as the lines will be. */
 .preview.is-loading {
-  opacity: 0.32;
+  position: relative;
+}
+.preview.is-loading .preview-text {
+  visibility: hidden;
+}
+.preview.is-loading::before {
+  content: "";
+  position: absolute;
+  inset: 0.12em 0;
+  border-radius: 6px;
+  background: var(--surface-sunk);
+  animation: preview-wait 1.4s ease-in-out infinite;
+}
+@keyframes preview-wait {
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview.is-loading::before {
+    animation: none;
+  }
 }
 .preview.is-failed {
   opacity: 0.6;

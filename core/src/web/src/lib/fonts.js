@@ -126,9 +126,73 @@ function pageTokens(pageUrl) {
   return [];
 }
 
+/* --- Character subsets ---------------------------------------------------
+   Sites often serve one typeface as several files split by unicode-range: a
+   Latin file, a Cyrillic file, a Vietnamese file. Each is a real, separate
+   download, but without a name for its script they read as identical copies.
+   The script is read off the range by looking for a letter only that script
+   has; the order puts the subset most people need first. */
+const SUBSETS = [
+  ["Latin", 0x41],
+  ["Cyrillic", 0x410],
+  ["Greek", 0x391],
+  ["Latin Extended", 0x100],
+  ["Cyrillic Extended", 0x460],
+  ["Greek Extended", 0x1f00],
+  ["Vietnamese", 0x1ea0],
+  ["Hebrew", 0x5d0],
+  ["Arabic", 0x627],
+  ["Devanagari", 0x905],
+  ["Thai", 0xe01],
+  ["Japanese", 0x3042],
+  ["Korean", 0xac00],
+  ["Chinese", 0x4e00],
+  ["Symbols", 0x2500],
+  ["Punctuation", 0x2013],
+];
+
+function parseRanges(value) {
+  return String(value)
+    .split(",")
+    .map((part) => part.trim().replace(/^u\+/i, ""))
+    .filter(Boolean)
+    .map((part) => {
+      if (part.includes("?"))
+        return [parseInt(part.replace(/\?/g, "0"), 16), parseInt(part.replace(/\?/g, "f"), 16)];
+      const [start, end = start] = part.split("-");
+      return [parseInt(start, 16), parseInt(end, 16)];
+    })
+    .filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end));
+}
+
+/** "U+0400-045F,…" -> "Cyrillic"; null when the face covers everything. */
+export function subsetLabel(font) {
+  if (!font?.unicode_range) return null;
+  const ranges = parseRanges(font.unicode_range);
+  const covers = (point) => ranges.some(([start, end]) => point >= start && point <= end);
+  return SUBSETS.find(([, point]) => covers(point))?.[0] || "Other characters";
+}
+
+const subsetRank = (font) => {
+  const label = subsetLabel(font);
+  if (!label) return -1;
+  const index = SUBSETS.findIndex(([name]) => name === label);
+  return index === -1 ? SUBSETS.length : index;
+};
+
 // Roman before italic before oblique at the same weight, as a type specimen reads.
 const STYLE_ORDER = { normal: 0, italic: 1, oblique: 2 };
 const styleRank = (font) => STYLE_ORDER[faceStyle(font)] ?? 3;
+
+/** Specimen order: light to heavy, roman before italic, Latin before other scripts. */
+export function compareFaces(a, b) {
+  return (
+    faceWeight(a) - faceWeight(b) ||
+    styleRank(a) - styleRank(b) ||
+    faceStyle(a).localeCompare(faceStyle(b)) ||
+    subsetRank(a) - subsetRank(b)
+  );
+}
 
 /**
  * Foundry pages often load the whole catalogue, so the typeface the page is
@@ -154,14 +218,7 @@ export function familyGroups(fonts, pageUrl = "") {
     .map(({ group, score }) => ({
       ...group,
       onPage: score > 0,
-      fonts: group.fonts
-        .slice()
-        .sort(
-          (a, b) =>
-            faceWeight(a) - faceWeight(b) ||
-            styleRank(a) - styleRank(b) ||
-            faceStyle(a).localeCompare(faceStyle(b)),
-        ),
+      fonts: group.fonts.slice().sort(compareFaces),
     }));
 }
 
@@ -190,6 +247,12 @@ export function weightName(weight) {
 }
 
 export function styleLabel(font) {
+  const subset = subsetLabel(font);
+  const base = baseStyleLabel(font);
+  return subset ? `${base} · ${subset}` : base;
+}
+
+function baseStyleLabel(font) {
   if (font.variable)
     return `Variable${
       faceStyle(font) !== "normal" ? " · " + faceStyle(font) : ""
@@ -255,5 +318,13 @@ export function normalizeUrl(raw) {
   const parsed = new URL(url);
   if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname)
     throw new Error("protocol");
+  // A host with spaces or without a dot ("not a url", "fonts") is a typo or a
+  // search phrase, not a site; catching it here saves a scan that cannot work.
+  const host = parsed.hostname;
+  if (
+    host.includes("%") ||
+    !(host.includes(".") || host === "localhost" || host.startsWith("["))
+  )
+    throw new Error("host");
   return parsed.href;
 }
