@@ -9,6 +9,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin fount
 WORKDIR /app
 COPY font-grabber /usr/local/bin/font-grabber
+# The binary is built on Windows and copied with scp, neither of which keeps
+# the execute bit; set it here so a release never depends on a manual chmod.
+RUN chmod 0755 /usr/local/bin/font-grabber
 ENV CHROME=/usr/bin/chromium HOME=/tmp TMPDIR=/tmp XDG_CACHE_HOME=/tmp/cache XDG_CONFIG_HOME=/tmp/config
 USER 10001:10001
 EXPOSE 8787
