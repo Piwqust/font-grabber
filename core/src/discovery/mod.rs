@@ -81,8 +81,15 @@ pub async fn scan_with_progress(
                 warnings.extend(browser_result.warnings);
                 used_browser = true;
             }
-            // In `render` a browser failure is fatal; in `auto` we fall back to
-            // whatever static discovery already found.
+            // A browser that cannot start is missing, not wrong: even `render`
+            // then keeps what static discovery found and says why.
+            Err(error) if browser_unavailable(&error) => {
+                warnings.push(format!(
+                    "Browser discovery unavailable, showing fonts from the page source only: {error}"
+                ));
+            }
+            // In `render` a failure on the page is fatal; in `auto` we fall back
+            // to whatever static discovery already found.
             Err(error) if matches!(request.mode, crate::domain::DiscoveryMode::Render) => {
                 return Err(error.context("Browser discovery failed"));
             }
@@ -117,6 +124,12 @@ pub async fn scan_with_progress(
         warnings,
         fonts,
     })
+}
+
+fn browser_unavailable(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.is::<crate::support::chrome::BrowserUnavailable>())
 }
 
 async fn enrich_font_scripts(
