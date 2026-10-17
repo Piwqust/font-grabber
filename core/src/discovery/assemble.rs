@@ -290,7 +290,8 @@ fn join_style_words(words: &[String]) -> Vec<String> {
 
 /// The same file reached twice (from the stylesheet and from the browser, one
 /// named by the page and one only by its file) is one face; the page's own
-/// name wins over one read off the file.
+/// name wins over one read off the file, and a reading that saw the file's
+/// unicode-range wins over one that did not.
 fn drop_duplicate_files(fonts: Vec<(FontCandidate, bool)>) -> Vec<FontCandidate> {
     let mut by_url: HashMap<String, usize> = HashMap::new();
     let mut out: Vec<(FontCandidate, bool)> = Vec::new();
@@ -300,11 +301,17 @@ fn drop_duplicate_files(fonts: Vec<(FontCandidate, bool)>) -> Vec<FontCandidate>
             continue;
         };
         match by_url.get(&url) {
-            Some(&index) if out[index].0.unicode_range == font.unicode_range => {
+            Some(&index)
+                if ranges_agree(
+                    out[index].0.unicode_range.as_deref(),
+                    font.unicode_range.as_deref(),
+                ) =>
+            {
                 let kept = &mut out[index];
-                if named_by_css && !kept.1 {
+                let fills_range = kept.0.unicode_range.is_none() && font.unicode_range.is_some();
+                if (named_by_css && !kept.1) || (fills_range && named_by_css == kept.1) {
                     let scripts = std::mem::take(&mut kept.0.scripts);
-                    *kept = (font, true);
+                    *kept = (font, named_by_css);
                     kept.0.scripts.extend(scripts);
                 } else {
                     kept.0.scripts.extend(font.scripts);
@@ -395,7 +402,7 @@ fn clusters(group: Vec<FontCandidate>) -> Vec<Vec<FontCandidate>> {
 
 fn are_pieces(left: &FontCandidate, right: &FontCandidate) -> bool {
     if let (Some(a), Some(b)) = (&left.unicode_range, &right.unicode_range) {
-        return a != b;
+        return range_intervals(a) != range_intervals(b);
     }
     let urls = |font: &FontCandidate| font.sources.first().map(|source| source.url.clone());
     let (Some(left_url), Some(right_url)) = (urls(left), urls(right)) else {
@@ -455,8 +462,14 @@ fn join(mut members: Vec<FontCandidate>) -> FontCandidate {
         return members.pop().unwrap();
     }
     // The base is the piece with basic Latin: it holds the layout features
-    // that matter most, and its glyph IDs are kept as they are.
-    members.sort_by_key(|font| std::cmp::Reverse(base_score(font)));
+    // that matter most, and its glyph IDs are kept as they are. The rest follow
+    // in a fixed order, so the same page always exports the same file.
+    members.sort_by(|left, right| {
+        base_score(right).cmp(&base_score(left)).then_with(|| {
+            let url = |font: &FontCandidate| font.sources.first().map(|source| source.url.clone());
+            url(left).cmp(&url(right))
+        })
+    });
     let mut base = members.remove(0);
     for piece in members {
         base.scripts.extend(piece.scripts.iter().copied());
@@ -497,19 +510,48 @@ fn base_score(font: &FontCandidate) -> u8 {
 }
 
 fn range_covers(range: &str, point: u32) -> bool {
-    range.split(',').any(|part| {
-        let part = part.trim().trim_start_matches(['U', 'u', '+']);
-        if part.contains('?') {
-            let low = u32::from_str_radix(&part.replace('?', "0"), 16);
-            let high = u32::from_str_radix(&part.replace('?', "F"), 16);
-            return matches!((low, high), (Ok(low), Ok(high)) if low <= point && point <= high);
+    range
+        .split(',')
+        .filter_map(range_part)
+        .any(|(start, end)| start <= point && point <= end)
+}
+
+/// One range written two ways (`U+??,U+0131` in the stylesheet, `U+0-FF, U+131`
+/// as the browser serialises it) is still one range. A missing range is a
+/// reading that did not see it, so it agrees with any.
+fn ranges_agree(left: Option<&str>, right: Option<&str>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => {
+            left == right || range_intervals(left) == range_intervals(right)
         }
-        let (start, end) = part.split_once('-').unwrap_or((part, part));
-        matches!(
-            (u32::from_str_radix(start, 16), u32::from_str_radix(end, 16)),
-            (Ok(start), Ok(end)) if start <= point && point <= end
-        )
-    })
+        _ => true,
+    }
+}
+
+fn range_intervals(range: &str) -> Vec<(u32, u32)> {
+    let mut parts: Vec<(u32, u32)> = range.split(',').filter_map(range_part).collect();
+    parts.sort_unstable();
+    let mut merged: Vec<(u32, u32)> = Vec::new();
+    for (start, end) in parts {
+        match merged.last_mut() {
+            Some(last) if start <= last.1.saturating_add(1) => last.1 = last.1.max(end),
+            _ => merged.push((start, end)),
+        }
+    }
+    merged
+}
+
+fn range_part(part: &str) -> Option<(u32, u32)> {
+    let part = part.trim().trim_start_matches(['U', 'u', '+']);
+    if part.contains('?') {
+        let low = u32::from_str_radix(&part.replace('?', "0"), 16).ok()?;
+        let high = u32::from_str_radix(&part.replace('?', "F"), 16).ok()?;
+        return Some((low, high));
+    }
+    let (start, end) = part.split_once('-').unwrap_or((part, part));
+    let start = u32::from_str_radix(start.trim(), 16).ok()?;
+    let end = u32::from_str_radix(end.trim(), 16).ok()?;
+    (start <= end).then_some((start, end))
 }
 
 #[cfg(test)]
@@ -589,6 +631,59 @@ mod tests {
         assert_eq!(fonts[0].sources[0].url, "https://x/b2.woff2");
         assert_eq!(fonts[0].parts.len(), 2);
         assert!(fonts[0].unicode_range.is_none());
+    }
+
+    #[test]
+    fn pieces_read_from_css_and_from_the_browser_join_once() {
+        // vercel.com: the stylesheet writes `U+??`, Chrome serialises the same
+        // range as `U+0-FF`. Both readings of each file must collapse before
+        // joining, or a second face keeps a Cyrillic-only file as its first
+        // source and its preview falls back to serif.
+        let variable = |mut font: FontCandidate, source| {
+            font.weight = "100 900".into();
+            font.variable = true;
+            font.scan_source = source;
+            font
+        };
+        let mut fonts = Vec::new();
+        for (latin, cyrillic, source) in [
+            ("U+??,U+131", "U+460-52F,U+1C80-1C8A", ScanSource::StaticCss),
+            (
+                "U+0-FF, U+131",
+                "U+460-52F, U+1C80-1C8A",
+                ScanSource::BrowserCss,
+            ),
+        ] {
+            fonts.push(variable(
+                face("Geist Mono", "https://x/cyr.woff2", Some(cyrillic)),
+                source,
+            ));
+            fonts.push(variable(
+                face("Geist Mono", "https://x/latin.woff2", Some(latin)),
+                source,
+            ));
+        }
+        let fonts = assemble(fonts);
+        assert_eq!(fonts.len(), 1);
+        assert_eq!(fonts[0].sources[0].url, "https://x/latin.woff2");
+        assert_eq!(fonts[0].parts.len(), 1);
+        assert_eq!(fonts[0].parts[0].sources[0].url, "https://x/cyr.woff2");
+    }
+
+    #[test]
+    fn a_reading_without_the_range_is_the_same_file() {
+        let fonts = assemble(vec![
+            face("Geist Mono", "https://x/cyr.woff2", None),
+            face("Geist Mono", "https://x/latin.woff2", Some("U+0000-00FF")),
+            face("Geist Mono", "https://x/cyr.woff2", Some("U+0400-045F")),
+        ]);
+        assert_eq!(fonts.len(), 1);
+        assert_eq!(fonts[0].sources[0].url, "https://x/latin.woff2");
+        assert_eq!(fonts[0].parts.len(), 1);
+        assert_eq!(
+            fonts[0].parts[0].unicode_range.as_deref(),
+            Some("U+0400-045F")
+        );
     }
 
     #[test]

@@ -35,11 +35,36 @@ const UNSUPPORTED_TABLES: &[&[u8; 4]] = &[
 
 /// Joins `parts` onto `base`. All inputs are uncompressed sfnt data.
 pub fn merge_sfnts(base: &[u8], parts: &[Vec<u8>]) -> Result<Vec<u8>> {
+    // Each piece is measured against the first file, not against what has been
+    // joined so far: a font service's ranges overlap on purpose (Latin Extended
+    // and Vietnamese share some thirty letters), so the running total would
+    // refuse a real piece depending only on the order the pieces arrive in.
+    let first = Font::parse(base).context("the first file")?;
+    for part in parts {
+        let part = Font::parse(part).context("an added file")?;
+        ensure_different_characters(&first, &part)?;
+    }
     let mut merged = base.to_vec();
     for part in parts {
         merged = merge_two(&merged, part)?;
     }
     Ok(merged)
+}
+
+/// Pieces of one face cover different characters. Two files that mostly
+/// overlap are two different fonts that happened to be grouped together.
+fn ensure_different_characters(base: &Font, part: &Font) -> Result<()> {
+    let shared = part
+        .cmap
+        .keys()
+        .filter(|cp| base.cmap.contains_key(cp))
+        .count();
+    let smaller = base.cmap.len().min(part.cmap.len()).max(1);
+    ensure!(
+        shared * 4 <= smaller,
+        "the files cover the same characters, so they are not pieces of one font"
+    );
+    Ok(())
 }
 
 struct Font<'a> {
@@ -145,19 +170,6 @@ fn merge_two(base_data: &[u8], part_data: &[u8]) -> Result<Vec<u8>> {
     ensure!(
         units(&base)? == units(&part)?,
         "the files use different units per em, so they are not one design"
-    );
-
-    // Pieces of one face cover different characters. Two files that mostly
-    // overlap are two different fonts that happened to be grouped together.
-    let shared = part
-        .cmap
-        .keys()
-        .filter(|cp| base.cmap.contains_key(cp))
-        .count();
-    let smaller = base.cmap.len().min(part.cmap.len()).max(1);
-    ensure!(
-        shared * 4 <= smaller,
-        "the files cover the same characters, so they are not pieces of one font"
     );
 
     let base_count = base.glyphs.len();
@@ -674,6 +686,8 @@ mod tests {
         let raw = match name {
             "tt-core" => include_bytes!("fixtures/tt-core.woff2").as_slice(),
             "tt-ext" => include_bytes!("fixtures/tt-ext.woff2").as_slice(),
+            "tt-ext-a" => include_bytes!("fixtures/tt-ext-a.woff2").as_slice(),
+            "tt-ext-b" => include_bytes!("fixtures/tt-ext-b.woff2").as_slice(),
             "cff-core" => include_bytes!("fixtures/cff-core.woff2").as_slice(),
             "cff-ext" => include_bytes!("fixtures/cff-ext.woff2").as_slice(),
             _ => unreachable!(),
@@ -719,6 +733,19 @@ mod tests {
     fn refuses_outlines_it_cannot_join() {
         let error = merge_sfnts(&fixture("cff-core"), &[fixture("cff-ext")]).unwrap_err();
         assert!(error.to_string().contains("first file") || error.to_string().contains("CFF"));
+    }
+
+    #[test]
+    fn pieces_that_overlap_each_other_join_in_any_order() {
+        let core = fixture("tt-core");
+        let (a, b) = (fixture("tt-ext-a"), fixture("tt-ext-b"));
+        for parts in [[a.clone(), b.clone()], [b, a]] {
+            let merged = merge_sfnts(&core, &parts).expect("both orders join");
+            let face = Face::parse(&merged, 0).unwrap();
+            for ch in ['A', '¡', 'é', '–', '…'] {
+                assert!(face.glyph_index(ch).is_some(), "{ch} is mapped");
+            }
+        }
     }
 
     #[test]

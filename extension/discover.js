@@ -25,6 +25,19 @@ function collectFontsInPage(opts) {
     if (token === "bold") return "700";
     return token;
   };
+  // `weight` stays one token (the extension names files by it); a variable
+  // face's whole "100 900" range travels separately so the Rust side can match
+  // it to the same face read from the stylesheet.
+  const weightRange = (v) => {
+    const tokens = (v || "").trim().split(/\s+/).filter(Boolean);
+    return tokens.length > 1 ? tokens.map(normWeight).join(" ") : "";
+  };
+  // A face split per script (next/font, Google Fonts) is several files told
+  // apart only by unicode-range; dropping it would merge them into one face.
+  const normRange = (v) => {
+    const range = (v || "").trim();
+    return /^u\+0*-10ffff$/i.test(range) ? "" : range;
+  };
   const normStyle = (v) => {
     const token = (v || "").trim().split(/\s+/)[0].toLowerCase();
     return token === "italic" || token === "oblique" ? token : "normal";
@@ -36,7 +49,7 @@ function collectFontsInPage(opts) {
   };
   const priority = (fmt) => ({ woff2: 1, woff: 2, truetype: 3, opentype: 4 }[fmt] || 9);
 
-  function addCandidate(rawUrl, base, family, weight, style, fmtHint, isVariable) {
+  function addCandidate(rawUrl, base, family, weight, style, fmtHint, isVariable, extra) {
     let url;
     try {
       url = new URL(rawUrl, base).href;
@@ -60,6 +73,8 @@ function collectFontsInPage(opts) {
       style: style || "normal",
       format: fmt,
       variable: !!isVariable,
+      weightRange: (extra && extra.weightRange) || "",
+      unicodeRange: (extra && extra.unicodeRange) || "",
     });
   }
 
@@ -95,7 +110,11 @@ function collectFontsInPage(opts) {
       }
       sources.sort((a, b) => priority(a.fmt || formatFromUrl(a.url)) - priority(b.fmt || formatFromUrl(b.url)));
       const best = sources[0];
-      if (best) addCandidate(best.url, base, family, weight, style, best.fmt, isVariable);
+      if (best)
+        addCandidate(best.url, base, family, weight, style, best.fmt, isVariable, {
+          weightRange: weightRange(rawWeight),
+          unicodeRange: normRange(rule.style.getPropertyValue("unicode-range")),
+        });
     }
   }
 
@@ -120,15 +139,18 @@ function collectFontsInPage(opts) {
       const weight = face.weight ? normWeight(face.weight) : "400";
       const style = face.style ? normStyle(face.style) : "normal";
       const variable = /\s/.test((face.weight || "").trim()) || /\s/.test((face.stretch || "").trim());
+      const extra = { weightRange: weightRange(face.weight), unicodeRange: normRange(face.unicodeRange) };
       const existing = out.get(face.url);
       if (existing) {
         if (face.family && (!existing.family || existing.family.length < 2)) existing.family = face.family;
         if (existing.weight === "400" && weight !== "400") existing.weight = weight;
         if (existing.style === "normal" && style !== "normal") existing.style = style;
         if (variable) existing.variable = true;
+        if (!existing.weightRange) existing.weightRange = extra.weightRange;
+        if (!existing.unicodeRange) existing.unicodeRange = extra.unicodeRange;
         continue;
       }
-      addCandidate(face.url, document.baseURI, face.family, weight, style, "", variable);
+      addCandidate(face.url, document.baseURI, face.family, weight, style, "", variable, extra);
     }
   } catch {
     /* no url-sourced FontFace records */

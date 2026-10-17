@@ -95,13 +95,14 @@
     for (const url of urls) {
       let entry = urlFaces.find((f) => f.url === url);
       if (!entry) {
-        entry = { url, family: "", weight: "", style: "", stretch: "" };
+        entry = { url, family: "", weight: "", style: "", stretch: "", unicodeRange: "" };
         urlFaces.push(entry);
       }
       if (name && !entry.family) entry.family = name;
       if (d.weight != null && d.weight !== "" && !entry.weight) entry.weight = String(d.weight);
       if (d.style && !entry.style) entry.style = String(d.style);
       if (d.stretch && !entry.stretch) entry.stretch = String(d.stretch);
+      if (d.unicodeRange && !entry.unicodeRange) entry.unicodeRange = String(d.unicodeRange);
     }
   }
 

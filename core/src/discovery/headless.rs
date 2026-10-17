@@ -46,6 +46,10 @@ struct RawCandidate {
     format: Option<String>,
     #[serde(default)]
     variable: Option<bool>,
+    #[serde(default, rename = "weightRange")]
+    weight_range: String,
+    #[serde(default, rename = "unicodeRange")]
+    unicode_range: String,
 }
 
 pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<CollectorResult> {
@@ -77,9 +81,16 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
         } else {
             candidate.family.trim().to_string()
         };
-        let weight = candidate.weight.unwrap_or_else(|| "400".to_string());
+        // The stylesheet reader keeps a variable face's "100 900"; matching it
+        // lets the same file found both ways collapse into one face.
+        let weight = Some(candidate.weight_range)
+            .filter(|range| !range.is_empty())
+            .or(candidate.weight)
+            .unwrap_or_else(|| "400".to_string());
         let style = candidate.style.unwrap_or_else(|| "normal".to_string());
-        let key = parser::font_identity_key(&family, &weight, &style, None, None);
+        let unicode_range = Some(candidate.unicode_range).filter(|range| !range.is_empty());
+        let key =
+            parser::font_identity_key(&family, &weight, &style, None, unicode_range.as_deref());
 
         fonts.push(FontCandidate {
             id: format!("{key}|{}", candidate.url),
@@ -91,7 +102,7 @@ pub async fn discover(page_url: &str, logger: Option<Logger>) -> Result<Collecto
                 url: candidate.url,
                 format,
             }],
-            unicode_range: None,
+            unicode_range,
             scripts: Vec::new(),
             variable: candidate.variable.unwrap_or(false),
             scan_source: ScanSource::BrowserCss,
