@@ -9,6 +9,7 @@ PartOf=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/fount/deploy
+EnvironmentFile=-/opt/fount/deploy/.env
 ExecStartPre=/usr/bin/docker compose create
 ExecStartPre=/bin/sh /opt/fount/deploy/egress.sh
 ExecStart=/usr/bin/docker compose up -d --no-build --wait

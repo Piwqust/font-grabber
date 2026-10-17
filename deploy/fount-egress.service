@@ -7,6 +7,7 @@ Wants=network-pre.target
 
 [Service]
 Type=oneshot
+EnvironmentFile=-/opt/fount/deploy/.env
 ExecStart=/bin/sh /opt/fount/deploy/egress.sh boot
 RemainAfterExit=yes
 

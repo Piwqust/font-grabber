@@ -4,4 +4,5 @@ After=docker.service
 
 [Service]
 Type=oneshot
+EnvironmentFile=-/opt/fount/deploy/.env
 ExecStart=/bin/sh /opt/fount/deploy/egress.sh ensure

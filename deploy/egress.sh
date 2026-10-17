@@ -6,6 +6,8 @@
 #   egress.sh remove   undo everything
 # Optional: FOUNT_PROXY_USER=caddy limits host-originated connections to the app
 # port to that user, so no other local process can pose as the trusted proxy.
+# Optional: FOUNT_HOST_IP=<public IPv4 of this host> also blocks the app from
+# calling back into the host through its own public address.
 set -eu
 if [ "$(id -u)" != 0 ]; then echo "Run with sudo." >&2; exit 1; fi
 app_ip=172.30.87.2
