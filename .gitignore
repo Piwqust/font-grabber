@@ -57,3 +57,6 @@ deploy/secrets/
 .DS_Store
 *.suo
 *.sw?
+
+# Local agent settings
+.claude/

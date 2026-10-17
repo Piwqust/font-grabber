@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Fount",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Detect, preview, and keep a page's type as clean TTF/OTF files.",
   "permissions": ["activeTab", "scripting", "downloads", "webRequest", "storage"],
   "host_permissions": ["<all_urls>"],
