@@ -1,10 +1,10 @@
 {
   "dependencies": {
-    "@floating-ui/dom": "1.6.13",
-    "motion": "13.2.0",
+    "@floating-ui/dom": "1.8.0",
+    "motion": "13.5.1",
     "open-props": "1.7.23",
-    "playwright": "^1.63.0",
-    "preact": "10.28.3"
+    "playwright": "^1.65.1",
+    "preact": "10.29.8"
   },
   "devDependencies": {
     "esbuild": "0.28.2"

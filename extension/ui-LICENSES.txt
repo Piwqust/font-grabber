@@ -1,6 +1,6 @@
 Bundled UI dependencies. Built using npm run build:ui.
 
-preact 10.28.3 (MIT)
+preact 10.29.8 (MIT)
 The MIT License (MIT)
 
 Copyright (c) 2015-present Jason Miller
@@ -24,7 +24,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-motion 13.2.0 (MIT)
+motion 13.5.1 (MIT)
 The MIT License (MIT)
 
 Copyright (c) 2024 [Motion](https://motion.dev) B.V.
@@ -48,7 +48,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-motion-dom 13.2.0 (MIT)
+motion-dom 13.5.1 (MIT)
 The MIT License (MIT)
 
 Copyright (c) 2024 [Motion](https://motion.dev) B.V.
@@ -72,7 +72,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-motion-utils 13.0.0 (MIT)
+motion-utils 13.5.0 (MIT)
 The MIT License (MIT)
 
 Copyright (c) 2024 [Motion](https://motion.dev) B.V.
@@ -96,7 +96,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-@floating-ui/dom 1.6.13 (MIT)
+@floating-ui/dom 1.8.0 (MIT)
 MIT License
 
 Copyright (c) 2021-present Floating UI contributors
