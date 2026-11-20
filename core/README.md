@@ -1,72 +1,75 @@
-# Fount
+# font-grabber (core)
 
-Rust rewrite focused on a cleaner CLI, a simpler architecture, and more reliable browser fallbacks.
+The Rust crate behind Fount: the CLI, the local web app and the discovery and
+conversion engine. The [repository README](../README.md) covers downloads and the
+other surfaces; this page is for working on the crate.
 
 ## Commands
 
-### Grab
-
-Discover fonts, optionally review the list interactively, then download, convert, and save.
-
 ```bash
-cargo run -- grab https://example.com
-cargo run -- grab https://example.com --all
-cargo run -- grab https://example.com --mode render --concurrency 8
+cargo run -- grab https://example.com                  # discover, pick, convert, save
+cargo run -- grab https://example.com --all -o ./out   # every face, no prompts
+cargo run -- grab https://example.com --all --only "GT America"
+cargo run -- scan https://example.com --json           # discovery only
+cargo run -- doctor                                    # which browser, does it start
+cargo run -- serve                                     # web app on http://127.0.0.1:8787
+cargo run -- password-hash                             # Argon2id hash for serve --hosted
 ```
 
-Flags:
+### `grab`
 
-- `-o, --output <dir>` — output directory
-- `-a, --all` — skip selection and save every discovered font
-- `--mode <auto|static|render>` — discovery strategy
-- `--webdriver-url <url>` — WebDriver endpoint
-- `--concurrency <n>` — max concurrent HTTP downloads
-- `--json` — machine-readable output (requires `--all`)
+| Flag | Meaning |
+| --- | --- |
+| `-o, --output <dir>` | Output folder. Default: `./fonts/<domain>` |
+| `-a, --all` | Save every face without the picker. Implied without a terminal |
+| `--only <family>` | Keep families whose name contains this text. Repeatable; case, spaces, `-` and `_` are ignored |
+| `--mode <auto\|static\|render>` | Discovery strategy (below) |
+| `--family <name>`, `--subfamily <name>` | Rewrite the OpenType names of every saved face |
+| `--concurrency <n>` | Parallel downloads, 1–32 (default 6) |
+| `--json` | Machine-readable report (needs `--all`): `found_count`, `families`, `saved[]`, warnings and failures |
 
-### Scan
-
-Discovery only.
-
-```bash
-cargo run -- scan https://example.com
-cargo run -- scan https://example.com --mode render
-cargo run -- scan https://example.com --json
-```
-
-### Doctor
-
-Probes WebDriver `/status`, creates a real browser session, loads a page, and runs a script.
-
-```bash
-cargo run -- doctor
-```
+`scan` takes `--mode`, `--only` and `--json`. `doctor --json` reports the browser
+path, its version, whether it starts headless and the discovery that results.
 
 ## Discovery modes
 
-- `auto` — static scan first, with browser-backed download fallback still available during `grab`
-- `static` — HTML/CSS discovery only
-- `render` — force browser CSSOM discovery
+| Mode | What runs |
+| --- | --- |
+| `auto` (default) | Page source **and** headless Chrome, merged. Without a browser it keeps the page-source results and says so |
+| `static` | HTML and linked CSS only; never starts a browser |
+| `render` | Headless Chrome first; a browser that cannot start falls back to the page source with a warning |
 
-## Architecture
+The browser is found in this order: `CHROME` or `CHROMIUM`, then Google Chrome,
+Chromium and Microsoft Edge in their usual install locations, then the first one
+on `PATH`. It is driven over CDP by [`headless_chrome`](https://crates.io/crates/headless_chrome);
+there is no WebDriver to install. `--webdriver-url` is still accepted and ignored,
+so older scripts keep working.
+
+## Layout
 
 ```text
 src/
-  app/         command flows (`grab`, `scan`, `doctor`)
-  cli/         clap parsing
-  convert/     WOFF/WOFF2 -> sfnt, inspection, conservative name repair
-  discovery/   static CSS parsing + browser CSSOM discovery
-  domain/      shared types and serializable reports
-  fetch/       HTTP download + browser-context retry
-  output/      output naming and file writing
-  support/     URL helpers, HTTP client, WebDriver helpers, terminal UI helpers
+  app/         command flows: grab, scan, doctor, serve (+ hosted auth, jobs, metadata)
+  cli/         clap definitions
+  convert/     WOFF/WOFF2 → sfnt, split-face merging, name-table repair
+  discovery/   page source + CSS, foundry catalogues, headless Chrome, family assembly
+  domain/      shared types and serialisable reports
+  fetch/       HTTP downloads with browser fallback
+  output/      file names and saving
+  support/     URLs, HTTP client, SSRF guard, Chrome launch, terminal output
+  web/         the web app: Preact sources, built bundle and assets (embedded)
 ```
 
-## Render mode requirement
+The discovery scripts that run inside the page are shared with the extension:
+`../extension/discover.js` and `../extension/capture.js` are compiled into the
+binary with `include_str!`.
 
-Browser-assisted discovery and browser-context downloads expect a WebDriver endpoint, such as Chromedriver or Selenium:
+## Tests
 
-```text
-http://localhost:4444
+```bash
+cargo test
 ```
 
-Override it with `--webdriver-url`.
+Some tests start local HTTP servers on `127.0.0.1`. If `HTTP_PROXY` is set in your
+environment, add `NO_PROXY=127.0.0.1,localhost` so those requests are not sent to
+the proxy.

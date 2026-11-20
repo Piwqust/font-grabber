@@ -358,8 +358,9 @@ fn analyze_font(sfnt_data: Vec<u8>, cached: &CachedFont) -> Result<ConvertedFont
 }
 
 fn refresh_info_from_face(info: &mut FontCandidate, face: &Face<'_>) {
-    if let Some(family) = preferred_face_name(face, &[name_id::TYPOGRAPHIC_FAMILY, name_id::FAMILY])
-    {
+    let typographic = preferred_face_name(face, &[name_id::TYPOGRAPHIC_FAMILY]);
+    let legacy = preferred_face_name(face, &[name_id::FAMILY]);
+    if let Some(family) = distinct_family(typographic, legacy) {
         info.family = family;
     }
     info.weight = face.weight().to_number().to_string();
@@ -370,6 +371,70 @@ fn refresh_info_from_face(info: &mut FontCandidate, face: &Face<'_>) {
     } else {
         "normal".to_string()
     };
+}
+
+/// The typographic family (ID 16) groups weights and styles, so it is the
+/// label to use, unless the legacy family (ID 1) adds a word that is not a
+/// weight or style: "Geist Pixel" + "Circle", "Acme" + "Display". Those are
+/// separate designs, and naming them all after ID 16 gave five different
+/// fonts the same label and colliding file names.
+fn distinct_family(typographic: Option<String>, legacy: Option<String>) -> Option<String> {
+    let Some(typographic) = typographic else {
+        return legacy;
+    };
+    let Some(legacy) = legacy else {
+        return Some(typographic);
+    };
+    let extra = legacy
+        .get(..typographic.len())
+        .filter(|prefix| prefix.eq_ignore_ascii_case(&typographic))
+        .map(|_| &legacy[typographic.len()..])
+        .filter(|rest| rest.starts_with(char::is_whitespace))
+        .map(str::trim);
+    match extra {
+        Some(extra) if !extra.is_empty() && !is_weight_or_style(extra) => Some(legacy),
+        _ => Some(typographic),
+    }
+}
+
+fn is_weight_or_style(words: &str) -> bool {
+    const WORDS: &[&str] = &[
+        "thin",
+        "hairline",
+        "extra",
+        "ultra",
+        "semi",
+        "demi",
+        "light",
+        "book",
+        "regular",
+        "normal",
+        "roman",
+        "plain",
+        "medium",
+        "bold",
+        "black",
+        "heavy",
+        "italic",
+        "oblique",
+        "slanted",
+        "upright",
+        "extralight",
+        "ultralight",
+        "semibold",
+        "demibold",
+        "extrabold",
+        "ultrabold",
+        "extrablack",
+        "ultrablack",
+    ];
+    words
+        .split(|ch: char| ch.is_whitespace() || ch == '-' || ch == '_')
+        .filter(|word| !word.is_empty())
+        .all(|word| {
+            let word = word.to_ascii_lowercase();
+            WORDS.contains(&word.as_str()) || word.chars().all(|ch| ch.is_ascii_digit())
+        })
 }
 
 fn preferred_face_name(face: &Face<'_>, name_ids: &[u16]) -> Option<String> {
@@ -473,6 +538,48 @@ fn read_u32(buf: &[u8], offset: usize) -> Result<u32> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn family_label_keeps_design_words_from_the_legacy_family() {
+        let pick = |typographic: Option<&str>, legacy: Option<&str>| {
+            distinct_family(typographic.map(Into::into), legacy.map(Into::into))
+        };
+        // Separate designs that share a typographic family.
+        assert_eq!(
+            pick(Some("Geist Pixel"), Some("Geist Pixel Circle")).as_deref(),
+            Some("Geist Pixel Circle")
+        );
+        assert_eq!(
+            pick(Some("Acme"), Some("Acme Display")).as_deref(),
+            Some("Acme Display")
+        );
+        // Weights and styles stay grouped under the typographic family.
+        assert_eq!(
+            pick(Some("Inter"), Some("Inter Medium")).as_deref(),
+            Some("Inter")
+        );
+        assert_eq!(
+            pick(Some("Inter"), Some("Inter Extra Light")).as_deref(),
+            Some("Inter")
+        );
+        assert_eq!(
+            pick(Some("Inter"), Some("Inter SemiBold Italic")).as_deref(),
+            Some("Inter")
+        );
+        assert_eq!(
+            pick(Some("Brand"), Some("Brand 700")).as_deref(),
+            Some("Brand")
+        );
+        // Unrelated or partial-word names keep the typographic family.
+        assert_eq!(
+            pick(Some("Inter"), Some("Interstate")).as_deref(),
+            Some("Inter")
+        );
+        assert_eq!(pick(Some("Geist"), Some("Other")).as_deref(), Some("Geist"));
+        assert_eq!(pick(None, Some("Legacy")).as_deref(), Some("Legacy"));
+        assert_eq!(pick(Some("Only"), None).as_deref(), Some("Only"));
+        assert_eq!(pick(None, None), None);
+    }
 
     use crate::domain::FontScript;
 
@@ -609,7 +716,9 @@ pub(crate) mod tests {
             subfamily: "Condensed".into(),
             ..NameDraft::default()
         };
-        let font = convert_font(&cached, Some(&subfamily_only)).unwrap().remove(0);
+        let font = convert_font(&cached, Some(&subfamily_only))
+            .unwrap()
+            .remove(0);
         let names = inspect_names(&font.data).unwrap();
         assert_eq!(names.family, original.family);
         assert_eq!(names.subfamily.as_deref(), Some("Condensed"));

@@ -118,7 +118,6 @@ mod tests {
             jobs: semaphore(),
             hosted: true,
             concurrency: 1,
-            webdriver_url: String::new(),
             scans: Arc::new(Mutex::new(HashMap::new())),
             exports: Arc::new(Mutex::new(HashMap::new())),
             uploads: Arc::new(Mutex::new(HashMap::new())),

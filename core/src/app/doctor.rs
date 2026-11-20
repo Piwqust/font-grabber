@@ -1,55 +1,37 @@
 use anyhow::{bail, Context, Result};
-use serde_json::Value;
 
 use crate::{
     cli::DoctorArgs,
     domain::DoctorReport,
-    support::{http::build_http_client, ui, webdriver},
+    support::{chrome, ui},
 };
 
+/// Checks the one external piece Fount relies on: a Chrome, Chromium or Edge
+/// it can start headless for dynamic discovery. Without one, scans still work
+/// from the page source alone.
 pub async fn run(args: DoctorArgs) -> Result<()> {
-    let status_url = format!("{}/status", args.webdriver_url.trim_end_matches('/'));
-    let client = build_http_client()?;
-
-    client
-        .get(&status_url)
-        .send()
+    let browser_path = chrome::browser_path();
+    let check = tokio::task::spawn_blocking(|| chrome::with_browser(probe))
         .await
-        .with_context(|| format!("Could not reach WebDriver at {status_url}"))?
-        .error_for_status()
-        .with_context(|| format!("WebDriver returned an error at {status_url}"))?;
+        .context("Browser check panicked")?;
 
-    let driver = webdriver::connect(&args.webdriver_url).await?;
-    let script_ok = async {
-        driver
-            .goto("data:text/html,<title>font-grabber</title><script>window.__font_grabber='ok'</script>")
-            .await
-            .context("Could not open a test page in WebDriver")?;
-        webdriver::wait_for_page_ready(&driver).await?;
-
-        let marker: String = driver
-            .execute("return window.__font_grabber", Vec::<Value>::new())
-            .await
-            .context("Could not execute a test script in WebDriver")?
-            .convert()
-            .context("Could not parse WebDriver script response")?;
-
-        Ok::<bool, anyhow::Error>(marker == "ok")
-    }
-    .await;
-    let _ = driver.quit().await;
-    let script_ok = script_ok?;
-
-    if !script_ok {
-        bail!("WebDriver session started but the script check failed")
-    }
-
-    let report = DoctorReport {
-        webdriver_url: args.webdriver_url,
-        status_url,
-        status_ok: true,
-        session_ok: true,
-        script_ok,
+    let report = match check {
+        Ok(version) => DoctorReport {
+            version: env!("CARGO_PKG_VERSION"),
+            browser_path,
+            browser_version: Some(version),
+            browser_ok: true,
+            error: None,
+            discovery: "auto",
+        },
+        Err(error) => DoctorReport {
+            version: env!("CARGO_PKG_VERSION"),
+            browser_path,
+            browser_version: None,
+            browser_ok: false,
+            error: Some(format!("{error:#}")),
+            discovery: "static",
+        },
     };
 
     if args.json {
@@ -58,5 +40,30 @@ pub async fn run(args: DoctorArgs) -> Result<()> {
         ui::print_doctor_report(&report);
     }
 
+    if !report.browser_ok {
+        bail!("No usable browser: scans will read the page source only")
+    }
     Ok(())
+}
+
+/// Starts the browser, runs a script in a page and returns the browser version.
+fn probe(browser: &headless_chrome::Browser) -> Result<String> {
+    let version = browser
+        .get_version()
+        .context("The browser started but did not report its version")?
+        .product;
+    let tab = browser.new_tab().context("Could not open a browser tab")?;
+    tab.navigate_to("data:text/html,<title>fount</title><p>ok</p>")
+        .context("Could not open a test page")?;
+    let _ = tab.wait_until_navigated();
+    let value = tab
+        .evaluate("document.title + ':' + (typeof FontFace)", false)
+        .context("Could not run a script in the test page")?
+        .value
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    if value != "fount:function" {
+        bail!("The test page answered {value:?} instead of \"fount:function\"");
+    }
+    Ok(version)
 }

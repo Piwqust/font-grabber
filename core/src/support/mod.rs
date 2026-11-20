@@ -2,7 +2,6 @@ pub mod chrome;
 pub mod http;
 pub mod ssrf;
 pub mod ui;
-pub mod webdriver;
 
 use std::{
     io::Write,
@@ -13,6 +12,8 @@ use std::{
 use anyhow::{anyhow, Result};
 use url::Url;
 
+use crate::domain::FontCandidate;
+
 pub use ssrf::validate_public_url;
 
 pub type Logger = Arc<dyn Fn(String) + Send + Sync + 'static>;
@@ -21,6 +22,50 @@ pub fn emit_log(logger: Option<&Logger>, message: impl Into<String>) {
     if let Some(logger) = logger {
         logger(message.into());
     }
+}
+
+/// Keeps the faces whose family (or CSS alias) contains one of `wanted`,
+/// ignoring case, spaces, hyphens and underscores: `--only "gt america"`
+/// matches `GT-America-Mono`. An empty filter keeps everything.
+pub fn filter_families(fonts: Vec<FontCandidate>, wanted: &[String]) -> Vec<FontCandidate> {
+    let wanted: Vec<String> = wanted
+        .iter()
+        .map(|value| family_key(value))
+        .filter(|value| !value.is_empty())
+        .collect();
+    if wanted.is_empty() {
+        return fonts;
+    }
+    fonts
+        .into_iter()
+        .filter(|font| {
+            let names = [Some(font.family.as_str()), font.css_family.as_deref()];
+            names
+                .into_iter()
+                .flatten()
+                .map(family_key)
+                .any(|name| wanted.iter().any(|needle| name.contains(needle.as_str())))
+        })
+        .collect()
+}
+
+/// Distinct family names in scan order, for reports.
+pub fn family_names(fonts: &[FontCandidate]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for font in fonts {
+        if !names.iter().any(|name| name == &font.family) {
+            names.push(font.family.clone());
+        }
+    }
+    names
+}
+
+fn family_key(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 pub fn normalize_url(input: &str) -> Result<String> {
@@ -230,6 +275,45 @@ mod tests {
         assert_eq!(sanitize_file_stem("COM1"), "COM1-");
         assert_eq!(sanitize_family_dir("COM0"), "COM0");
         assert_eq!(sanitize_family_dir("Console"), "Console");
+    }
+
+    #[test]
+    fn family_filter_ignores_case_and_separators() {
+        let face = |family: &str, css: Option<&str>| FontCandidate {
+            id: family.into(),
+            family: family.into(),
+            style: "normal".into(),
+            weight: "400".into(),
+            stretch: None,
+            sources: vec![],
+            unicode_range: None,
+            scripts: vec![],
+            variable: false,
+            scan_source: crate::domain::ScanSource::StaticCss,
+            parts: Vec::new(),
+            css_family: css.map(Into::into),
+        };
+        let fonts = vec![
+            face("GT-America-Mono", None),
+            face("Inter", None),
+            face("Brand Sans", Some("acme_display")),
+        ];
+        let kept = |wanted: &[&str]| {
+            let wanted: Vec<String> = wanted.iter().map(|value| value.to_string()).collect();
+            filter_families(fonts.clone(), &wanted)
+                .into_iter()
+                .map(|font| font.family)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(kept(&["gt america"]), ["GT-America-Mono"]);
+        assert_eq!(kept(&["INTER", "Acme Display"]), ["Inter", "Brand Sans"]);
+        assert_eq!(kept(&[]).len(), 3);
+        assert_eq!(kept(&[" - "]).len(), 3);
+        assert!(kept(&["Helvetica"]).is_empty());
+        assert_eq!(
+            family_names(&fonts),
+            ["GT-America-Mono", "Inter", "Brand Sans"]
+        );
     }
 
     #[test]

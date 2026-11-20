@@ -4,7 +4,7 @@ use crate::{
     cli::ScanArgs,
     discovery,
     domain::ScanRequest,
-    support::{normalize_url, ui},
+    support::{family_names, filter_families, normalize_url, ui},
 };
 
 pub async fn run(args: ScanArgs) -> Result<()> {
@@ -22,16 +22,26 @@ pub async fn run(args: ScanArgs) -> Result<()> {
         Some(ui::human_logger())
     };
 
-    let report = discovery::scan(
+    let mut report = discovery::scan(
         &ScanRequest {
             page_url,
             mode: args.mode,
-            webdriver_url: args.webdriver_url,
             enrich_scripts: true,
         },
         logger,
     )
     .await?;
+    if !args.only.is_empty() {
+        let families = family_names(&report.fonts);
+        report.fonts = filter_families(std::mem::take(&mut report.fonts), &args.only);
+        if report.fonts.is_empty() && !families.is_empty() {
+            report.warnings.push(format!(
+                "No family matches {}. Found: {}",
+                args.only.join(", "),
+                families.join(", ")
+            ));
+        }
+    }
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);

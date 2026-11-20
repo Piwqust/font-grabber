@@ -62,7 +62,8 @@ pub async fn download_fonts(
             .await
             .map_err(|error| error.to_string());
             if let Ok(cached) = result {
-                result = attach_parts(&client, cached, &page_url, &cache_dir, restrict_private).await;
+                result =
+                    attach_parts(&client, cached, &page_url, &cache_dir, restrict_private).await;
             }
             if restrict_private {
                 if let Ok(cached) = &result {
@@ -205,7 +206,10 @@ async fn attach_parts(
         )
         .await
         .map_err(|error| {
-            format!("piece {} of {total} could not be downloaded: {error}", index + 2)
+            format!(
+                "piece {} of {total} could not be downloaded: {error}",
+                index + 2
+            )
         })?;
         cached.parts.push(CachedPart {
             path: downloaded.cached_path,

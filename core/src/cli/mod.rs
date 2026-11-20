@@ -44,12 +44,10 @@ pub struct GrabArgs {
     #[arg(long, value_enum, default_value_t = DiscoveryMode::Auto, help = "Discovery strategy")]
     pub mode: DiscoveryMode,
 
-    #[arg(
-        long,
-        default_value = "http://localhost:4444",
-        help = "WebDriver endpoint used for render mode and browser fallback"
-    )]
-    pub webdriver_url: String,
+    /// Ignored. Fount starts its own headless Chrome; kept so older scripts
+    /// that still pass it keep working.
+    #[arg(long, hide = true)]
+    pub webdriver_url: Option<String>,
 
     #[arg(
         long,
@@ -61,6 +59,13 @@ pub struct GrabArgs {
 
     #[arg(long, help = "Print machine-readable JSON")]
     pub json: bool,
+
+    #[arg(
+        long,
+        value_name = "FAMILY",
+        help = "Keep only families whose name contains this text (repeatable, case and spacing ignored)"
+    )]
+    pub only: Vec<String>,
 
     #[arg(long, help = "Overwrite the OpenType family name on every saved face")]
     pub family: Option<String>,
@@ -80,15 +85,20 @@ pub struct ScanArgs {
     #[arg(long, value_enum, default_value_t = DiscoveryMode::Auto, help = "Discovery strategy")]
     pub mode: DiscoveryMode,
 
-    #[arg(
-        long,
-        default_value = "http://localhost:4444",
-        help = "WebDriver endpoint used for render mode"
-    )]
-    pub webdriver_url: String,
+    /// Ignored. Fount starts its own headless Chrome; kept so older scripts
+    /// that still pass it keep working.
+    #[arg(long, hide = true)]
+    pub webdriver_url: Option<String>,
 
     #[arg(long, help = "Print machine-readable JSON")]
     pub json: bool,
+
+    #[arg(
+        long,
+        value_name = "FAMILY",
+        help = "Keep only families whose name contains this text (repeatable, case and spacing ignored)"
+    )]
+    pub only: Vec<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -103,12 +113,10 @@ pub struct ServeArgs {
     )]
     pub host: String,
 
-    #[arg(
-        long,
-        default_value = "http://localhost:4444",
-        help = "WebDriver endpoint used for render mode and browser fallback"
-    )]
-    pub webdriver_url: String,
+    /// Ignored. Fount starts its own headless Chrome; kept so older scripts
+    /// that still pass it keep working.
+    #[arg(long, hide = true)]
+    pub webdriver_url: Option<String>,
 
     #[arg(
         long,
@@ -141,12 +149,10 @@ pub struct ServeArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct DoctorArgs {
-    #[arg(
-        long,
-        default_value = "http://localhost:4444",
-        help = "WebDriver endpoint to probe"
-    )]
-    pub webdriver_url: String,
+    /// Ignored. Fount starts its own headless Chrome; kept so older scripts
+    /// that still pass it keep working.
+    #[arg(long, hide = true)]
+    pub webdriver_url: Option<String>,
 
     #[arg(long, help = "Print machine-readable JSON")]
     pub json: bool,

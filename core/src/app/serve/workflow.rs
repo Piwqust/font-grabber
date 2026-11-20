@@ -92,7 +92,6 @@ pub(super) async fn report_for(
     let request = ScanRequest {
         page_url: url,
         mode,
-        webdriver_url: state.webdriver_url.clone(),
         enrich_scripts: false,
     };
     let report = discovery::scan(&request, None).await?;
@@ -263,8 +262,8 @@ pub(super) async fn deliver(
             .rand_bytes(24)
             .tempfile()?;
         let mut writer = zip::ZipWriter::new(file.as_file_mut());
-        let options: zip::write::FileOptions<'_, ()> =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
         let mut used = HashSet::new();
         for font in converted {
             let name = unique_name(output::build_output_filename(font), &mut used);
@@ -460,7 +459,6 @@ mod tests {
         AppState {
             auth: None,
             jobs: jobs::semaphore(),
-            webdriver_url: String::new(),
             concurrency: 1,
             hosted: false,
             scans: Arc::new(Mutex::new(HashMap::new())),

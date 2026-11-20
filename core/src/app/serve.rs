@@ -52,7 +52,6 @@ type ScanCache = HashMap<String, CachedScan>;
 struct AppState {
     auth: Option<Arc<auth::Auth>>,
     jobs: Arc<tokio::sync::Semaphore>,
-    webdriver_url: String,
     concurrency: usize,
     hosted: bool,
     scans: Arc<Mutex<ScanCache>>,
@@ -103,7 +102,6 @@ pub async fn run(args: ServeArgs) -> Result<()> {
     let state = AppState {
         auth: auth::Auth::load(&args)?,
         jobs: jobs::semaphore(),
-        webdriver_url: args.webdriver_url.clone(),
         concurrency: args.concurrency,
         hosted: args.hosted,
         scans: Arc::new(Mutex::new(HashMap::new())),
@@ -169,7 +167,7 @@ fn router(state: AppState) -> Router {
             state.clone(),
             jobs::limit,
         ))
-        .route("/api/export/:id", get(workflow::archive))
+        .route("/api/export/{id}", get(workflow::archive))
         .route("/api/font", get(font_proxy))
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -180,7 +178,7 @@ fn router(state: AppState) -> Router {
         .route("/style.css", get(style))
         .route("/app.js", get(script))
         .route("/favicon.svg", get(favicon))
-        .route("/assets/:name", get(asset))
+        .route("/assets/{name}", get(asset))
         .route("/healthz", get(|| async { "ok" }))
         .merge(protected)
         .merge(auth::routes())
@@ -467,7 +465,6 @@ async fn scan(State(state): State<AppState>, Json(body): Json<ScanBody>) -> Resp
     let request = ScanRequest {
         page_url,
         mode,
-        webdriver_url: state.webdriver_url.clone(),
         // Keep the interactive scan fast; the live preview shows real glyphs anyway.
         enrich_scripts: false,
     };
@@ -571,7 +568,6 @@ async fn grab(State(state): State<AppState>, Json(body): Json<GrabBody>) -> Resp
                 let request = ScanRequest {
                     page_url: page_url.clone(),
                     mode,
-                    webdriver_url: state.webdriver_url.clone(),
                     enrich_scripts: false,
                 };
                 match discovery::scan(&request, None).await {
@@ -811,8 +807,8 @@ fn build_zip(fonts: &[crate::domain::ConvertedFont]) -> Result<Vec<u8>> {
     let mut buffer = std::io::Cursor::new(Vec::new());
     {
         let mut writer = zip::ZipWriter::new(&mut buffer);
-        let options: zip::write::FileOptions<'_, ()> =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
 
         let mut used = HashSet::new();
         for font in fonts {
@@ -1047,7 +1043,6 @@ mod tests {
             auth: None,
             jobs: jobs::semaphore(),
             hosted: false,
-            webdriver_url: String::new(),
             concurrency: 1,
             scans: Arc::new(Mutex::new(HashMap::new())),
             uploads: Arc::new(Mutex::new(HashMap::new())),

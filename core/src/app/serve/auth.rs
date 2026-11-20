@@ -415,7 +415,6 @@ mod tests {
             )),
             jobs: jobs::semaphore(),
             hosted: true,
-            webdriver_url: String::new(),
             concurrency: 1,
             scans: Arc::new(Mutex::new(HashMap::new())),
             uploads: Arc::new(Mutex::new(HashMap::new())),

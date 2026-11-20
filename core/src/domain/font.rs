@@ -172,15 +172,6 @@ pub enum TransferMethod {
     Browser,
 }
 
-impl TransferMethod {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Http => "http",
-            Self::Browser => "browser",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct FontSource {
     pub url: String,

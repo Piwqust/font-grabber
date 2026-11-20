@@ -141,22 +141,30 @@ pub fn print_grab_report(report: &GrabReport) {
 
 pub fn print_doctor_report(report: &DoctorReport) {
     print_title("Doctor");
-    println!("{} {}", style("WebDriver").dim(), report.webdriver_url);
+    println!("{} {}", style("Fount").dim(), report.version);
+    let browser = report
+        .browser_path
+        .as_ref()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "not found".to_string());
+    println!("{} {}", style("Browser").dim(), browser);
+    if let Some(version) = &report.browser_version {
+        println!("{} {}", style("Version").dim(), version);
+    }
     println!(
         "{} {}",
-        style("Status").dim(),
-        status_text(report.status_ok)
+        style("Headless").dim(),
+        status_text(report.browser_ok)
     );
-    println!(
-        "{} {}",
-        style("Session").dim(),
-        status_text(report.session_ok)
-    );
-    println!(
-        "{} {}",
-        style("Script").dim(),
-        status_text(report.script_ok)
-    );
+    if let Some(error) = &report.error {
+        println!("{} {}", style("Error").dim(), error);
+    }
+    let discovery = if report.browser_ok {
+        "page source + browser (finds dynamic and catalogue fonts)"
+    } else {
+        "page source only. Install Chrome, Chromium or Edge, or set CHROME, for dynamic fonts"
+    };
+    println!("{} {}", style("Discovery").dim(), discovery);
 }
 
 fn print_title(title: &str) {

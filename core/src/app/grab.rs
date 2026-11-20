@@ -8,7 +8,7 @@ use crate::{
     convert, discovery,
     domain::{DiscoveryMode, FontCandidate, GrabReport, GrabRequest, NameDraft, ScanRequest},
     fetch, output,
-    support::{default_output_dir, normalize_url, ui},
+    support::{default_output_dir, family_names, filter_families, normalize_url, ui},
 };
 
 pub async fn run(args: GrabArgs) -> Result<()> {
@@ -30,7 +30,6 @@ pub async fn run(args: GrabArgs) -> Result<()> {
         scan: ScanRequest {
             page_url: page_url.clone(),
             mode: args.mode,
-            webdriver_url: args.webdriver_url,
             enrich_scripts: true,
         },
         output_dir: args.output.unwrap_or_else(|| default_output_dir(&page_url)),
@@ -42,7 +41,19 @@ pub async fn run(args: GrabArgs) -> Result<()> {
     } else {
         Some(ui::human_logger())
     };
-    let scan_report = discovery::scan(&request.scan, logger.clone()).await?;
+    let mut scan_report = discovery::scan(&request.scan, logger.clone()).await?;
+    let found_count = scan_report.fonts.len();
+    let families = family_names(&scan_report.fonts);
+    if !args.only.is_empty() {
+        scan_report.fonts = filter_families(std::mem::take(&mut scan_report.fonts), &args.only);
+        if scan_report.fonts.is_empty() && found_count > 0 {
+            scan_report.warnings.push(format!(
+                "No family matches {}. Found: {}",
+                args.only.join(", "),
+                families.join(", ")
+            ));
+        }
+    }
 
     if !args.json {
         ui::print_scan_report(&scan_report);
@@ -61,6 +72,8 @@ pub async fn run(args: GrabArgs) -> Result<()> {
             page_url: request.scan.page_url,
             output_dir: request.output_dir,
             used_browser: scan_report.used_browser,
+            found_count,
+            families,
             selected_count: 0,
             saved_count: 0,
             warnings: scan_report.warnings,
@@ -102,6 +115,8 @@ pub async fn run(args: GrabArgs) -> Result<()> {
         page_url: request.scan.page_url,
         output_dir: request.output_dir,
         used_browser: scan_report.used_browser,
+        found_count,
+        families,
         selected_count: selected.len(),
         saved_count: saved.len(),
         warnings: scan_report.warnings,

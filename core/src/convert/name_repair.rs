@@ -217,8 +217,8 @@ fn fill_required_names(replacements: &mut BTreeMap<u16, String>, existing: &BTre
         .or_else(|| usable(2, replacements))
         .unwrap_or_else(|| "Regular".to_string());
     let version = usable(5, replacements).unwrap_or_else(|| "Version 1.000".to_string());
-    let postscript = usable(6, replacements)
-        .unwrap_or_else(|| compose_post_script_name(&family, &subfamily));
+    let postscript =
+        usable(6, replacements).unwrap_or_else(|| compose_post_script_name(&family, &subfamily));
     let fills = [
         (1, family.clone()),
         (2, legacy_subfamily(&subfamily).to_string()),
@@ -227,7 +227,10 @@ fn fill_required_names(replacements: &mut BTreeMap<u16, String>, existing: &BTre
         (6, postscript.clone()),
         (
             3,
-            format!("{};Fount;{postscript}", version.trim_start_matches("Version ")),
+            format!(
+                "{};Fount;{postscript}",
+                version.trim_start_matches("Version ")
+            ),
         ),
     ];
     for (id, value) in fills {
@@ -906,7 +909,9 @@ mod tests {
         let names = windows_names(&apply_name_draft(&scrubbed(), &draft).unwrap());
         for id in REQUIRED_WINDOWS_NAME_IDS {
             assert!(
-                names.get(&id).is_some_and(|value| is_valid_font_name(value)),
+                names
+                    .get(&id)
+                    .is_some_and(|value| is_valid_font_name(value)),
                 "name ID {id} is usable: {:?}",
                 names.get(&id)
             );

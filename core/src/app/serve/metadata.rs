@@ -508,7 +508,6 @@ mod tests {
         AppState {
             auth: None,
             jobs: jobs::semaphore(),
-            webdriver_url: String::new(),
             concurrency: 1,
             hosted: false,
             scans: Arc::new(Mutex::new(HashMap::new())),
@@ -557,7 +556,7 @@ mod tests {
             .route("/api/scan", post(scan))
             .route("/fixture", get(|| async { Html("<style>@font-face{font-family:Geist;src:url('/fixture.woff2') format('woff2');font-weight:400}</style>") }))
             .route("/fixture.woff2", get(|| async { ([(header::CONTENT_TYPE, "font/woff2")], include_bytes!("../../web/assets/geist-400.woff2").as_slice()) }))
-            .route("/api/export/:id", get(workflow::archive))
+            .route("/api/export/{id}", get(workflow::archive))
             .with_state(state.clone());
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();

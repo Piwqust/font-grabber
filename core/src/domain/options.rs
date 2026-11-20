@@ -38,7 +38,6 @@ impl fmt::Display for DiscoveryMode {
 pub struct ScanRequest {
     pub page_url: String,
     pub mode: DiscoveryMode,
-    pub webdriver_url: String,
     /// Inspect each font's glyph coverage to label supported scripts. Accurate but
     /// downloads every candidate, so the web UI disables it for a responsive scan.
     pub enrich_scripts: bool,

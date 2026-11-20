@@ -114,16 +114,21 @@ struct Session {
     profile: tempfile::TempDir,
 }
 
-fn launch() -> Result<Session> {
-    let path = std::env::var_os("CHROME")
+/// The browser Fount would start: `CHROME` or `CHROMIUM` when set, otherwise
+/// the first Chrome, Chromium or Edge found on this machine.
+pub fn browser_path() -> Option<PathBuf> {
+    std::env::var_os("CHROME")
         .or_else(|| std::env::var_os("CHROMIUM"))
         .map(PathBuf::from)
         .or_else(find_browser)
-        .ok_or_else(|| {
-            BrowserUnavailable(
-                "No Chrome or Chromium found. Install Chrome or set CHROME to its path.".into(),
-            )
-        })?;
+}
+
+fn launch() -> Result<Session> {
+    let path = browser_path().ok_or_else(|| {
+        BrowserUnavailable(
+            "No Chrome or Chromium found. Install Chrome or set CHROME to its path.".into(),
+        )
+    })?;
     let profile = tempfile::Builder::new()
         .prefix("fount-chrome-")
         .tempdir()
