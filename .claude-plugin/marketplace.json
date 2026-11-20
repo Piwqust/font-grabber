@@ -1,0 +1,18 @@
+{
+  "name": "fount",
+  "owner": {
+    "name": "Piwqust",
+    "url": "https://github.com/Piwqust"
+  },
+  "description": "Fount: find the fonts behind any website and save them as TTF/OTF.",
+  "plugins": [
+    {
+      "name": "fount",
+      "source": "./",
+      "description": "Skill grab-fonts: give it a site, get its fonts as TTF/OTF. No installation; the portable binary is fetched and checksum-verified on first use.",
+      "version": "3.2.0",
+      "category": "productivity",
+      "tags": ["fonts", "typography", "download", "woff2", "ttf"]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "fount",
+  "version": "3.2.0",
+  "description": "Download the fonts behind any website as clean TTF/OTF files. The grab-fonts skill fetches Fount's portable binary on first use, so nothing needs installing.",
+  "author": {
+    "name": "Piwqust",
+    "url": "https://github.com/Piwqust"
+  },
+  "homepage": "https://github.com/Piwqust/font-grabber",
+  "repository": "https://github.com/Piwqust/font-grabber",
+  "license": "ISC",
+  "keywords": ["fonts", "typography", "font-downloader", "woff2", "ttf", "otf", "variable-fonts"]
+}
