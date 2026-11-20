@@ -19,7 +19,7 @@ with names you can rewrite before they're saved.
 ![WebAssembly](https://img.shields.io/badge/WASM-no_bindgen-654ff0?style=flat-square&logo=webassembly&logoColor=white)
 ![Chrome MV3](https://img.shields.io/badge/Chrome-Manifest_V3-4285f4?style=flat-square&logo=googlechrome&logoColor=white)
 
-[**Download**](#-download) · [Quick start](#-quick-start) · [Features](#-features) · [How it works](#-how-it-works) · [Build from source](#-build-from-source) · [FAQ](#-faq)
+[**Download**](#-download) · [Quick start](#-quick-start) · [AI agent skill](#-ai-agent-skill) · [Features](#-features) · [How it works](#-how-it-works) · [Build from source](#-build-from-source) · [FAQ](#-faq)
 
 <br>
 
@@ -33,13 +33,13 @@ with names you can rewrite before they're saved.
 <br>
 
 Foundry sites, type testers and single-page apps hide their fonts in CSS, in JavaScript, behind
-extensionless URLs and inside Web Workers. Fount finds them by running **one discovery engine in three
-places**, then converts `WOFF2` / `WOFF` back to installable sfnt on your own machine: name table repaired,
+extensionless URLs and inside Web Workers. Fount finds them by running **one discovery engine in every
+surface**, then converts `WOFF2` / `WOFF` back to installable sfnt on your own machine: name table repaired,
 variable axes kept.
 
 <table>
 <tr>
-<td width="33%" valign="top">
+<td width="25%" valign="top">
 
 **🖥️ Local web app**<br>
 <sub>Recommended</sub>
@@ -48,7 +48,7 @@ A single binary serves the full interface on `127.0.0.1`: live specimens, family
 editor, ZIP or save-to-folder.
 
 </td>
-<td width="33%" valign="top">
+<td width="25%" valign="top">
 
 **🧩 Chrome extension**<br>
 <sub>No install beyond the browser</sub>
@@ -57,13 +57,22 @@ Grabs fonts from the tab you're on and converts them **inside the browser** with
 compiled to WebAssembly.
 
 </td>
-<td width="33%" valign="top">
+<td width="25%" valign="top">
 
 **⌨️ CLI**<br>
 <sub>Scriptable</sub>
 
 `grab` and `scan` for terminals and pipelines, with `--json` output and name overrides for every
 saved face.
+
+</td>
+<td width="25%" valign="top">
+
+**🤖 AI agent skill**<br>
+<sub>Nothing to install</sub>
+
+Ask Claude Code, Codex or Cursor for a site's fonts. The skill fetches Fount on first use and
+saves the files.
 
 </td>
 </tr>
@@ -76,14 +85,18 @@ Grab the build for your platform from the [**latest release**](https://github.co
 | Platform | File | What's inside |
 | --- | --- | --- |
 | **Windows** x64 | [`font-grabber-windows-x64.zip`](https://github.com/Piwqust/font-grabber/releases/latest/download/font-grabber-windows-x64.zip) | `font-grabber.exe` plus one-click launchers for the web app and the CLI |
+| **macOS** Apple Silicon | [`font-grabber-macos-arm64.tar.gz`](https://github.com/Piwqust/font-grabber/releases/latest/download/font-grabber-macos-arm64.tar.gz) | `font-grabber` binary |
+| **macOS** Intel | [`font-grabber-macos-x64.tar.gz`](https://github.com/Piwqust/font-grabber/releases/latest/download/font-grabber-macos-x64.tar.gz) | `font-grabber` binary |
 | **Linux** x64 (glibc 2.36+) | [`font-grabber-linux-x64.tar.gz`](https://github.com/Piwqust/font-grabber/releases/latest/download/font-grabber-linux-x64.tar.gz) | `font-grabber` binary |
+| **Linux** arm64 (glibc 2.36+) | [`font-grabber-linux-arm64.tar.gz`](https://github.com/Piwqust/font-grabber/releases/latest/download/font-grabber-linux-arm64.tar.gz) | `font-grabber` binary |
 | **Chrome / Edge** | [`fount-chrome-extension.zip`](https://github.com/Piwqust/font-grabber/releases/latest/download/fount-chrome-extension.zip) | Unpacked Manifest V3 extension, ready to load |
 
 Every release also ships `SHA256SUMS.txt`, so you can check what you downloaded.
 
 > [!NOTE]
-> The web app and the CLI use your installed **Chrome or Chromium** for dynamic discovery. Without it,
-> Fount falls back to static scanning, which still finds every `@font-face` declared in HTML and CSS.
+> The web app and the CLI use your installed **Chrome, Chromium or Edge** for dynamic discovery.
+> Without one, Fount falls back to static scanning, which still finds every `@font-face` declared in
+> HTML and CSS. `font-grabber doctor` shows which browser it found.
 
 ## 🚀 Quick start
 
@@ -95,10 +108,10 @@ Every release also ships `SHA256SUMS.txt`, so you can check what you downloaded.
 **Windows:** unzip the release and double-click **`Fount Web.cmd`**. Your browser opens at
 `http://127.0.0.1:8787`.
 
-**Linux:**
+**macOS and Linux:**
 
 ```bash
-tar -xzf font-grabber-linux-x64.tar.gz
+tar -xzf font-grabber-*.tar.gz && cd font-grabber
 ./font-grabber serve          # http://127.0.0.1:8787
 ```
 
@@ -132,7 +145,9 @@ font-grabber grab https://example.com                   # discover → pick → 
 font-grabber grab https://example.com --all -o ./out    # everything, no prompts
 font-grabber grab https://displaay.net/typeface/perfektta --all   # a full variable family
 font-grabber grab https://example.com --all --family "My Sans"    # rename while saving
+font-grabber grab https://vercel.com --all --only "Geist Mono"   # just one family
 font-grabber scan https://example.com --json            # discovery only, machine-readable
+font-grabber doctor                                     # which browser, does it start headless
 ```
 
 ```text
@@ -144,6 +159,30 @@ $ font-grabber grab https://displaay.net/typeface/perfektta --all
 ```
 
 </details>
+
+## 🤖 AI agent skill
+
+[`skills/grab-fonts`](skills/grab-fonts/SKILL.md) is an [Agent Skill](https://agentskills.io) for
+Claude Code, Codex, Cursor and other agents that read `SKILL.md`. Name a site and the agent saves
+its fonts:
+
+```text
+/grab-fonts https://displaay.net/typeface/perfektta
+/grab-fonts vercel.com Geist Mono
+скачай шрифты с https://vercel.com
+```
+
+**Nothing to install.** On first use the skill's launcher downloads the portable `font-grabber` for
+your system from the latest release, checks it against `SHA256SUMS.txt`, caches it per user and runs
+it: no admin rights, no PATH changes, no package manager.
+
+Add it to Claude Code with one command, or copy the folder into any agent's skills folder:
+
+```text
+/plugin install fount --marketplace Piwqust/font-grabber
+```
+
+Manual install, platforms and settings: [skills/README.md](skills/README.md).
 
 ## ✨ Features
 
@@ -315,13 +354,16 @@ fetches. It is meant to sit behind Caddy, never on the open internet by itself. 
 
 ```text
 .
-├── core/         Rust crate: CLI, local web server and the engine
-│   └── src/      app · cli · convert · discovery · domain · fetch · output · support · web
-├── wasm/         The converter compiled to WebAssembly for the extension
-├── extension/    Chrome MV3 extension (popup, shared discover.js, convert.wasm)
-├── deploy/       Docker, Caddy and systemd files for the hosted edition
-├── scripts/      Build, launch and QA helpers
-└── docs/         Design notes, contracts and screenshots
+├── core/             Rust crate: CLI, local web server and the engine
+│   └── src/          app · cli · convert · discovery · domain · fetch · output · support · web
+├── wasm/             The converter compiled to WebAssembly for the extension
+├── extension/        Chrome MV3 extension (popup, shared discover.js, convert.wasm)
+├── skills/           Agent skill grab-fonts: SKILL.md and its no-install launchers
+├── .claude-plugin/   Claude Code plugin and marketplace manifests for the skill
+├── .github/          CI and the release workflow that builds every platform
+├── deploy/           Docker, Caddy and systemd files for the hosted edition
+├── scripts/          Build, packaging, launch and QA helpers
+└── docs/             Design notes, contracts and screenshots
 ```
 
 </details>
@@ -363,7 +405,10 @@ them on your computer. Only a hosted instance you deploy yourself runs on a serv
 
 <br>
 
-Fount looks for an installed Chrome or Chromium. To use a specific browser build, point Fount at it:
+Run `font-grabber doctor`: it shows which browser Fount found and whether it starts headless. Fount
+looks for Google Chrome, then Chromium, then Microsoft Edge; a browser that does not start within
+20 seconds is skipped and the scan keeps what the page source showed. To use a specific build, point
+Fount at it:
 
 ```bash
 CHROME=/path/to/chrome font-grabber serve
@@ -380,8 +425,9 @@ CHROME=/path/to/chrome font-grabber serve
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome. Before opening a PR, run `cargo test --release` in `core/` and, if
-you touched the interface, `npm run build:ui`. Design and architecture notes live in [`docs/`](docs/), for
+Issues and pull requests are welcome. Before opening a PR, run `cargo test` in `core/` and, if you
+touched the interface, `npm run build:ui`; CI runs the same checks on Linux, Windows and macOS. Changes
+are listed in the [changelog](CHANGELOG.md). Design and architecture notes live in [`docs/`](docs/), for
 example [UI architecture](docs/UI-ARCHITECTURE.md), [the metadata editor](docs/METADATA-EDITOR.md) and
 [family workflow](docs/FAMILY-WORKFLOW.md).
 
