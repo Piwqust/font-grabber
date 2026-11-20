@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  core:
+    name: Engine (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Formatting
+        if: runner.os == 'Linux'
+        run: cargo fmt --manifest-path core/Cargo.toml --check
+      - name: Tests
+        run: cargo test --locked --manifest-path core/Cargo.toml
+
+  wasm:
+    name: Extension converter (WASM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo build --locked --release --target wasm32-unknown-unknown --manifest-path wasm/Cargo.toml
+
+  ui:
+    name: Interface bundles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      - run: npm run build:ui
+
+  skill:
+    name: Agent skill (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Shell launcher parses
+        shell: bash
+        run: sh -n skills/grab-fonts/scripts/fount.sh
+      - name: PowerShell launcher parses
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/skills/grab-fonts/scripts/fount.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors; exit 1 }
+      - name: Launcher fetches the published release and runs it
+        if: runner.os != 'macOS'
+        shell: bash
+        run: sh skills/grab-fonts/scripts/fount.sh --version

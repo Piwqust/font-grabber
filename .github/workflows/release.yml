@@ -1,0 +1,129 @@
+name: Release
+
+# Push a tag such as v3.2.0 (or run this by hand for an existing tag). Builds
+# font-grabber for every platform the grab-fonts skill downloads, packs the
+# Chrome extension, writes SHA256SUMS.txt and attaches everything to a draft
+# release. Publishing the draft stays a manual step; the skill only sees
+# published releases.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build, for example v3.2.0
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    # Debian 12 keeps the glibc requirement at 2.36, as in earlier releases.
+    container: rust:1-bookworm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: Build
+        run: cargo build --release --locked --manifest-path core/Cargo.toml
+      - name: Package
+        run: bash scripts/package-release.sh core/target/release/font-grabber font-grabber-linux-${{ matrix.arch }}.tar.gz dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: font-grabber-linux-${{ matrix.arch }}
+          path: dist/
+          if-no-files-found: error
+
+  native:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: font-grabber.exe
+            asset: font-grabber-windows-x64.zip
+          - name: macOS arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            binary: font-grabber
+            asset: font-grabber-macos-arm64.tar.gz
+          - name: macOS x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            binary: font-grabber
+            asset: font-grabber-macos-x64.tar.gz
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked --target ${{ matrix.target }} --manifest-path core/Cargo.toml
+      - name: Package
+        shell: bash
+        run: bash scripts/package-release.sh "core/target/${{ matrix.target }}/release/${{ matrix.binary }}" ${{ matrix.asset }} dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Draft release
+    needs: [linux, native]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Pack the Chrome extension
+        run: bash scripts/package-release.sh extension fount-chrome-extension.zip dist
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum font-grabber-* fount-chrome-extension.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Create or update the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${TAG#v}"
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            # Notes: the CHANGELOG.md section for this version.
+            awk -v version="$version" '
+              index($0, "## [" version "]") == 1 { on = 1; next }
+              on && /^## / { exit }
+              on { print }
+            ' CHANGELOG.md > notes.md
+            gh release create "$TAG" --draft --verify-tag --title "Fount $version" --notes-file notes.md
+          fi
+          gh release upload "$TAG" dist/* --clobber
